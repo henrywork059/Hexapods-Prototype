@@ -1,0 +1,1576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hexapod Planner (Wave Gait · Foot Targets + Stability)</title>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --panel: #0f1a2e;
+      --grid: rgba(148, 163, 184, 0.10);
+      --gridBold: rgba(148, 163, 184, 0.22);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent2: #a78bfa;
+      --accent3: #4ade80;
+      --warn: #ef4444;
+      --amber: #f59e0b;
+
+      /* Body */
+      --bodyFill: rgba(56, 189, 248, 0.55);
+      --bodyFillSide: rgba(56, 189, 248, 0.22);
+      --bodyStroke: rgba(56, 189, 248, 0.9);
+      --strutStroke: rgba(56, 189, 248, 0.45);
+      --cornerDot: #facc15;
+
+      /* Feet / Polygon */
+      --footFill: rgba(236, 72, 153, 0.15);
+      --footStroke: rgba(236, 72, 153, 0.6);
+      --footLine: rgba(236, 72, 153, 0.25);
+      --swing: #ffffff;
+
+      /* Sectors */
+      --sectorLine: rgba(250, 204, 21, 0.5);
+    }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: radial-gradient(1200px 800px at 30% 20%, #0f2344 0%, var(--bg) 55%, #070b14 100%);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .wrap {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 12px;
+      padding: 12px;
+      height: 100%;
+      box-sizing: border-box;
+    }
+
+    .panel {
+      position: relative;
+      background: linear-gradient(180deg, rgba(15,26,46,0.85), rgba(9,14,26,0.85));
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+    }
+
+    #topPanel { grid-column: 1; grid-row: 1 / span 2; }
+    #sidePanel { grid-column: 2; grid-row: 1; }
+    #polyPanel { grid-column: 2; grid-row: 2; }
+
+    .hdr {
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      right: 12px;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .title {
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      font-size: 14px;
+      color: var(--text);
+      opacity: 0.95;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      opacity: 0.95;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      outline: none;
+    }
+
+    .footer {
+      position: absolute;
+      bottom: 10px;
+      left: 12px;
+      right: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      z-index: 2;
+      pointer-events: none;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .pill {
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      background: rgba(2,6,23,0.35);
+      backdrop-filter: blur(6px);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 49%;
+    }
+
+    .keys-overlay {
+      position: absolute;
+      bottom: 50px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 12px;
+      z-index: 10;
+      pointer-events: none;
+      opacity: 0.85;
+    }
+
+    .k-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      background: rgba(0, 0, 0, 0.2);
+      padding: 6px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .k-label {
+      font-size: 9px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+      font-weight: 600;
+    }
+
+    .k-row { display: flex; gap: 4px; }
+
+    .k-btn {
+      width: 24px;
+      height: 24px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 4px;
+      background: rgba(0,0,0,0.5);
+      color: #ccc;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.1s;
+    }
+
+    .k-btn.k-wide { width: auto; padding: 0 8px; min-width: 40px; }
+    .k-btn.k-placeholder { border: none; background: none; }
+
+    .k-btn.active {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+      transform: translateY(1px);
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+    }
+
+    @media (max-width: 980px) {
+      .wrap {
+        grid-template-columns: 1fr;
+        grid-template-rows: repeat(3, 1fr);
+      }
+      #topPanel  { grid-column: 1; grid-row: 1; }
+      #sidePanel { grid-column: 1; grid-row: 2; }
+      #polyPanel { grid-column: 1; grid-row: 3; }
+      .pill { max-width: 100%; }
+      .keys-overlay { bottom: 60px; right: 10px; transform: scale(0.8); transform-origin: bottom right; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel" id="topPanel">
+      <div class="hdr">
+        <div class="title">Top View (XY)</div>
+        <div class="hint">Click to focus · WASD move · Q/E yaw · Arrows pitch/roll · Space/Shift height</div>
+      </div>
+      <canvas id="top" tabindex="0"></canvas>
+
+      <div class="keys-overlay">
+        <div class="k-group">
+          <div class="k-label">Move & Yaw</div>
+          <div class="k-row">
+            <div class="k-btn" data-key="KeyQ">Q</div>
+            <div class="k-btn" data-key="KeyW">W</div>
+            <div class="k-btn" data-key="KeyE">E</div>
+          </div>
+          <div class="k-row">
+            <div class="k-btn" data-key="KeyA">A</div>
+            <div class="k-btn" data-key="KeyS">S</div>
+            <div class="k-btn" data-key="KeyD">D</div>
+          </div>
+        </div>
+        <div class="k-group">
+          <div class="k-label">Height</div>
+          <div class="k-row">
+            <div class="k-btn k-wide" data-key="ShiftLeft">SHIFT</div>
+            <div class="k-btn k-wide" data-key="Space">SPACE</div>
+          </div>
+        </div>
+        <div class="k-group">
+          <div class="k-label">Pitch & Roll</div>
+          <div class="k-row">
+            <div class="k-btn" data-key="ControlLeft" style="font-size: 9px; width: 30px;">CTRL</div>
+            <div class="k-btn" data-key="ArrowUp">▲</div>
+            <div class="k-btn k-placeholder"></div>
+          </div>
+          <div class="k-row">
+            <div class="k-btn" data-key="ArrowLeft">◄</div>
+            <div class="k-btn" data-key="ArrowDown">▼</div>
+            <div class="k-btn" data-key="ArrowRight">►</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <div class="pill" id="topReadout">—</div>
+        <div class="pill" id="gaitReadout">—</div>
+      </div>
+    </div>
+
+    <div class="panel" id="sidePanel">
+      <div class="hdr">
+        <div class="title">Side View (World XZ)</div>
+        <div class="hint">Planner-only · Body pitch visible · Roll shown as indicator</div>
+      </div>
+      <canvas id="side"></canvas>
+      <div class="footer">
+        <div class="pill" id="sideReadout">—</div>
+        <div class="pill" id="statusPill" style="color:var(--accent);">Active</div>
+      </div>
+    </div>
+
+    <div class="panel" id="polyPanel">
+      <div class="hdr">
+        <div class="title">Stability View</div>
+        <div class="hint">COM & Support Polygon (Convex Hull)</div>
+      </div>
+      <canvas id="poly"></canvas>
+      <div class="footer">
+        <div class="pill" id="marginPill">Margin: --</div>
+        <div class="pill">Green = COM</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // =========================================================
+  // 1) Configuration
+  // =========================================================
+  const cfg = {
+    // Physics / timing
+    FIXED_HZ: 60,
+    MAX_ACCUM: 0.25,
+
+    // Input
+    DEADZONE: 0.05,
+    SMOOTH_TAU: 0.12,
+
+    // Body command limits (planner-level)
+    V_MAX: 2.5,       // units/s
+    Z_RATE_MAX: 1.5,  // units/s
+    W_YAW_MAX: 2.0,   // rad/s
+    W_PITCH_MAX: 1.5, // rad/s
+    W_ROLL_MAX: 0.6,  // rad/s
+
+    // Body geometry
+    BODY_R: 5 / Math.sqrt(3), // matches your reference: flat-to-flat = 5
+    BODY_H: 1.0,              // hexagon height is 1 unit
+    FOOT_OUT: 1.0,            // midpoint-of-side outward offset
+    BODY_SIDES_FLAT_FRONT: true,
+
+    // View
+    GRID_STEP: 1.0,
+    GRID_BOLD_EVERY: 5,
+    TOP_HALF_EXTENT: 15,
+    SIDE_HALF_EXTENT_X: 15,
+
+    // Gait (wave)
+    DUTY: 0.80,          // stance ratio (informational; wave will exceed this in practice)
+    CLEARANCE: 0.4,
+    MAX_STEP: 0.6,
+    TARGET_TAU: 0.08,    // LPF for swing target (prevents endpoint snapping)
+    FOOT_SPEED_MAX: 2.0, // max swing foot speed (units/s) for safety
+
+    // Speed-dependent frequency: freq = f0 + k*speed, clamped
+    F0: 0.6,
+    FK: 0.35,
+    FREQ_MIN: 0.35,
+    FREQ_MAX: 1.6,
+
+    // Stability
+    MARGIN_THRESH: 0.15,
+    N_FRAMES: 5,
+
+    // Shock detector (placeholder for future IMU)
+    SHOCK_RATE: 6.0, // rad/s threshold for |dRoll/dt| or |dPitch/dt|
+
+    // Styling helpers
+    BODY_ROT_OFFSET: Math.PI / 6, // 30° => flat side centered on +X
+  };
+
+  // =========================================================
+  // 2) State
+  // =========================================================
+  const state = {
+    // Body pose (world)
+    x: 0, y: 0, z: 2.0,
+    roll: 0, pitch: 0, yaw: 0,
+
+    // Raw + filtered inputs (normalized -1..1)
+    u:  { x:0, y:0, z:0, roll:0, pitch:0, yaw:0 },
+    uf: { x:0, y:0, z:0, roll:0, pitch:0, yaw:0 },
+
+    // For shock detection
+    prevRoll: 0,
+    prevPitch: 0,
+
+    // Status
+    hardStop: false,
+    stopped: false,
+    unstableCount: 0,
+
+    // Gait scheduler
+    swingIdx: -1,
+    swingT: 0,
+    wasActiveCmd: false,
+    activeCmd: false,
+  };
+
+  // Leg order & naming (indices aligned to side normals around body)
+  // Side normals (flat-front): angles = 0°,60°,120°,180°,240°,300° (CCW). +Y is left.
+  const legs = [
+    { name: 'RF', side: 0 },
+    { name: 'LF', side: 1 },
+    { name: 'LM', side: 2 },
+    { name: 'LR', side: 3 },
+    { name: 'RR', side: 4 },
+    { name: 'RM', side: 5 },
+  ];
+
+  const waveOrderNames = ['LF','RR','LM','RF','LR','RM'];
+  const waveOrder = waveOrderNames.map(n => legs.findIndex(L => L.name === n));
+
+  // Feet state
+  // - anchor: world position for stance foot
+  // - pos: current world position (swing moves)
+  // - target: filtered world target for swing
+  // - mode: 'STANCE' | 'SWING'
+  const feet = Array.from({ length: 6 }, () => ({
+    mode: 'STANCE',
+    anchor: {x:0,y:0,z:0},
+    pos:    {x:0,y:0,z:0},
+    target: {x:0,y:0,z:0},
+    lift:   {x:0,y:0,z:0},
+  }));
+
+  // =========================================================
+  // 3) Terrain
+  // =========================================================
+  function getTerrainZ(x, y) {
+    // Flat for now; keep as the only ground-truth function.
+    return 0.0;
+  }
+
+  // =========================================================
+  // 4) Input handling
+  // =========================================================
+  const key = new Set();
+  const topCanvas = document.getElementById('top');
+
+  // Make focusing easy
+  topCanvas.addEventListener('mousedown', () => topCanvas.focus());
+
+  window.addEventListener('keydown', (e) => {
+    key.add(e.code);
+    if ([
+      'ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space',
+      'KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE',
+      'ShiftLeft','ShiftRight','ControlLeft','ControlRight'
+    ].includes(e.code)) {
+      e.preventDefault();
+    }
+    if (e.code === 'KeyR') resetAll();
+  }, { passive: false });
+
+  window.addEventListener('keyup', (e) => key.delete(e.code));
+
+  const keyEls = document.querySelectorAll('.k-btn');
+  function updateKeyVisuals() {
+    keyEls.forEach(el => {
+      const code = el.getAttribute('data-key');
+      if (!code) return;
+      let active = key.has(code);
+      if (code === 'ShiftLeft' && key.has('ShiftRight')) active = true;
+      if (code === 'ControlLeft' && key.has('ControlRight')) active = true;
+      el.classList.toggle('active', active);
+    });
+  }
+
+  function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+  function wrapPi(a){ while(a>Math.PI) a-=2*Math.PI; while(a<-Math.PI) a+=2*Math.PI; return a; }
+  function hypot2(x,y){ return Math.hypot(x,y); }
+
+  function applyDeadzone(v){ return Math.abs(v) < cfg.DEADZONE ? 0 : v; }
+
+  function sampleInput() {
+    // Body frame commands
+    let ux = 0; if (key.has('KeyW')) ux += 1; if (key.has('KeyS')) ux -= 1;
+    let uy = 0; if (key.has('KeyA')) uy += 1; if (key.has('KeyD')) uy -= 1;
+
+    let uz = 0; if (key.has('Space')) uz += 1; if (key.has('ShiftLeft') || key.has('ShiftRight')) uz -= 1;
+
+    let uyaw = 0; if (key.has('KeyQ')) uyaw += 1; if (key.has('KeyE')) uyaw -= 1;
+
+    let upitch = 0; if (key.has('ArrowUp')) upitch += 1; if (key.has('ArrowDown')) upitch -= 1;
+    let uroll  = 0; if (key.has('ArrowRight')) uroll += 1; if (key.has('ArrowLeft'))  uroll -= 1;
+
+    const leveling = key.has('ControlLeft') || key.has('ControlRight');
+    if (leveling) {
+      const gain = 3.0;
+      upitch = clamp(-state.pitch * gain, -1, 1);
+      uroll  = clamp(-state.roll  * gain, -1, 1);
+      if (Math.abs(state.pitch) < 0.002) { state.pitch = 0; upitch = 0; }
+      if (Math.abs(state.roll)  < 0.002) { state.roll  = 0; uroll  = 0; }
+    }
+
+    // Normalize translation so diagonal isn't faster
+    const m = Math.hypot(ux, uy, uz);
+    if (m > 1) { ux/=m; uy/=m; uz/=m; }
+
+    // Normalize rotation input
+    const r = Math.hypot(uroll, upitch, uyaw);
+    if (r > 1 && !leveling) { uroll/=r; upitch/=r; uyaw/=r; }
+
+    state.u.x = applyDeadzone(clamp(ux,-1,1));
+    state.u.y = applyDeadzone(clamp(uy,-1,1));
+    state.u.z = applyDeadzone(clamp(uz,-1,1));
+    state.u.yaw = applyDeadzone(clamp(uyaw,-1,1));
+    state.u.pitch = leveling ? clamp(upitch,-1,1) : applyDeadzone(clamp(upitch,-1,1));
+    state.u.roll  = leveling ? clamp(uroll,-1,1)  : applyDeadzone(clamp(uroll,-1,1));
+  }
+
+  function lowpass(dt) {
+    const a = 1 - Math.exp(-dt / cfg.SMOOTH_TAU);
+    for (const k of Object.keys(state.uf)) {
+      state.uf[k] = state.uf[k] + a * (state.u[k] - state.uf[k]);
+    }
+  }
+
+  // =========================================================
+  // 5) Geometry transforms
+  // =========================================================
+  // Rotations applied in roll->pitch->yaw order (X->Y->Z), then translate.
+  function rotateRPY(v, roll, pitch, yaw) {
+    const cr = Math.cos(roll),  sr = Math.sin(roll);
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const cy = Math.cos(yaw),   sy = Math.sin(yaw);
+
+    // Roll about X
+    let x1 = v.x;
+    let y1 = v.y * cr - v.z * sr;
+    let z1 = v.y * sr + v.z * cr;
+
+    // Pitch about Y
+    let x2 = x1 * cp + z1 * sp;
+    let y2 = y1;
+    let z2 = -x1 * sp + z1 * cp;
+
+    // Yaw about Z
+    let x3 = x2 * cy - y2 * sy;
+    let y3 = x2 * sy + y2 * cy;
+    let z3 = z2;
+
+    return { x: x3, y: y3, z: z3 };
+  }
+
+  function bodyToWorld(pB) {
+    const r = rotateRPY(pB, state.roll, state.pitch, state.yaw);
+    return { x: r.x + state.x, y: r.y + state.y, z: r.z + state.z };
+  }
+
+  // Only yaw is needed often for planar lookahead; keep a helper.
+  function rotateYaw2D(x, y, yaw) {
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    return { x: c*x - s*y, y: s*x + c*y };
+  }
+
+  function computeBodyVerticesWorld() {
+    // Hex prism: top 6 + bottom 6 in body frame, then transform.
+    const R = cfg.BODY_R;
+    const H = cfg.BODY_H;
+    const vertsB = [];
+
+    for (let i = 0; i < 6; i++) {
+      const ang = cfg.BODY_ROT_OFFSET + i * (Math.PI * 2 / 6);
+      vertsB.push({ x: R*Math.cos(ang), y: R*Math.sin(ang), z: +H/2 });
+    }
+    for (let i = 0; i < 6; i++) {
+      const ang = cfg.BODY_ROT_OFFSET + i * (Math.PI * 2 / 6);
+      vertsB.push({ x: R*Math.cos(ang), y: R*Math.sin(ang), z: -H/2 });
+    }
+
+    return vertsB.map(bodyToWorld);
+  }
+
+  function computeNeutralFeetBody() {
+    // Midpoint of each side (between vertex i and i+1), pushed outward by FOOT_OUT.
+    const R = cfg.BODY_R;
+    const out = cfg.FOOT_OUT;
+    const v = [];
+    for (let i = 0; i < 6; i++) {
+      const ang = cfg.BODY_ROT_OFFSET + i * (Math.PI * 2 / 6);
+      v.push({ x: R*Math.cos(ang), y: R*Math.sin(ang) });
+    }
+
+    const neutrals = [];
+    for (let i = 0; i < 6; i++) {
+      const a = v[i];
+      const b = v[(i+1)%6];
+      const mx = 0.5*(a.x+b.x);
+      const my = 0.5*(a.y+b.y);
+      // outward direction is from center to midpoint
+      const mlen = Math.hypot(mx, my) || 1;
+      neutrals.push({ x: mx + out*(mx/mlen), y: my + out*(my/mlen), z: 0 });
+    }
+    return neutrals;
+  }
+
+  const neutralFeetBody = computeNeutralFeetBody();
+
+  // =========================================================
+  // 6) Convex hull + stability margin
+  // =========================================================
+  function cross(o, a, b) {
+    return (a.x - o.x)*(b.y - o.y) - (a.y - o.y)*(b.x - o.x);
+  }
+
+  function convexHull(points) {
+    // Monotonic chain. Returns hull CCW.
+    const pts = points.slice().sort((p,q) => (p.x - q.x) || (p.y - q.y));
+    if (pts.length <= 2) return pts;
+
+    const lower = [];
+    for (const p of pts) {
+      while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
+      lower.push(p);
+    }
+
+    const upper = [];
+    for (let i = pts.length - 1; i >= 0; i--) {
+      const p = pts[i];
+      while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop();
+      upper.push(p);
+    }
+
+    upper.pop();
+    lower.pop();
+    return lower.concat(upper);
+  }
+
+  function pointInPoly(p, poly) {
+    // Ray casting
+    if (poly.length < 3) return false;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      const intersect = ((yi > p.y) !== (yj > p.y)) &&
+        (p.x < (xj - xi) * (p.y - yi) / (yj - yi + 1e-12) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function distPointToSegment(p, a, b) {
+    const vx = b.x - a.x;
+    const vy = b.y - a.y;
+    const wx = p.x - a.x;
+    const wy = p.y - a.y;
+
+    const c1 = vx*wx + vy*wy;
+    if (c1 <= 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    const c2 = vx*vx + vy*vy;
+    if (c2 <= c1) return Math.hypot(p.x - b.x, p.y - b.y);
+
+    const t = c1 / c2;
+    const px = a.x + t*vx;
+    const py = a.y + t*vy;
+    return Math.hypot(p.x - px, p.y - py);
+  }
+
+  function stabilityMargin(com, hull) {
+    if (hull.length < 3) return { margin: 0, inside: false };
+    const inside = pointInPoly(com, hull);
+    let dmin = Infinity;
+    for (let i = 0; i < hull.length; i++) {
+      const a = hull[i];
+      const b = hull[(i+1)%hull.length];
+      dmin = Math.min(dmin, distPointToSegment(com, a, b));
+    }
+    return { margin: inside ? dmin : -dmin, inside };
+  }
+
+  // =========================================================
+  // 7) Gait planner
+  // =========================================================
+  function computeSpeedBody() {
+    const vx = state.uf.x * cfg.V_MAX;
+    const vy = state.uf.y * cfg.V_MAX;
+    return { vx, vy, speed: Math.hypot(vx, vy) };
+  }
+
+  function gaitFrequency(speed) {
+    const f = cfg.F0 + cfg.FK * speed;
+    return clamp(f, cfg.FREQ_MIN, cfg.FREQ_MAX);
+  }
+
+  function isCommandActive() {
+    const { speed } = computeSpeedBody();
+    const w = Math.abs(state.uf.yaw * cfg.W_YAW_MAX);
+    const z = Math.abs(state.uf.z * cfg.Z_RATE_MAX);
+    const pr = Math.hypot(state.uf.pitch*cfg.W_PITCH_MAX, state.uf.roll*cfg.W_ROLL_MAX);
+    return (speed + w*0.5 + z*0.25 + pr*0.25) > 0.02;
+  }
+
+  function nextSwingLegIndex(currentIdx) {
+    // Advance in fixed wave order.
+    const curPos = Math.max(0, waveOrder.indexOf(currentIdx));
+    const nextPos = (curPos + 1) % waveOrder.length;
+    return waveOrder[nextPos];
+  }
+
+  function beginSwing(idx) {
+    state.swingIdx = idx;
+    state.swingT = 0;
+    feet[idx].mode = 'SWING';
+    feet[idx].lift = { ...feet[idx].pos };
+    feet[idx].target = { ...feet[idx].pos };
+  }
+
+  function forceAllStance() {
+    for (let i = 0; i < 6; i++) {
+      feet[i].mode = 'STANCE';
+      feet[i].anchor = { ...feet[i].pos };
+    }
+    state.swingIdx = -1;
+    state.swingT = 0;
+  }
+
+  function restartSchedulerFromCurrent() {
+    // If any swing leg exists, re-anchor it immediately.
+    forceAllStance();
+    // Choose next swing leg = first in order (LF) by default.
+    beginSwing(waveOrder[0]);
+  }
+
+  function desiredSwingTargetWorld(idx, dt) {
+    // Neutral point in BODY, then add lookahead based on command.
+    // Side index for this leg selects the correct neutral side midpoint.
+    const side = legs[idx].side;
+    const nB = neutralFeetBody[side];
+
+    const { vx, vy, speed } = computeSpeedBody();
+    const stepLen = clamp(speed * 0.35, 0, cfg.MAX_STEP);
+
+    // Direction in body frame
+    let dx = 0, dy = 0;
+    if (speed > 1e-6) { dx = vx / speed; dy = vy / speed; }
+
+    // Predict yaw halfway through a nominal cycle
+    const freq = gaitFrequency(speed);
+    const T = 1 / freq;
+    const yawRate = state.uf.yaw * cfg.W_YAW_MAX;
+    const yawPredict = yawRate * (0.5 * T);
+
+    // Apply predicted yaw to neutral+offset in body frame
+    const base = { x: nB.x + dx*stepLen, y: nB.y + dy*stepLen };
+    const rot = rotateYaw2D(base.x, base.y, yawPredict);
+
+    // Convert to world (full RPY) using current body pose
+    const pW = bodyToWorld({ x: rot.x, y: rot.y, z: 0 });
+
+    // Snap Z to terrain (planned landing)
+    pW.z = getTerrainZ(pW.x, pW.y);
+
+    return pW;
+  }
+
+  function smoothstep(t) {
+    return t*t*(3 - 2*t);
+  }
+
+  function updateSwing(dt) {
+    if (state.swingIdx < 0) return;
+
+    const i = state.swingIdx;
+
+    // Target filter (prevents endpoint snapping during continuous retargeting)
+    const targetDesired = desiredSwingTargetWorld(i, dt);
+    const a = 1 - Math.exp(-dt / cfg.TARGET_TAU);
+    feet[i].target.x += a * (targetDesired.x - feet[i].target.x);
+    feet[i].target.y += a * (targetDesired.y - feet[i].target.y);
+    feet[i].target.z += a * (targetDesired.z - feet[i].target.z);
+
+    // Swing time based on speed-dependent frequency
+    const { speed } = computeSpeedBody();
+    const freq = gaitFrequency(speed);
+    const T = 1 / freq;
+    const Tw = (1 - cfg.DUTY) * T; // 20% of nominal cycle
+
+    // Advance normalized swing phase
+    state.swingT += dt / Math.max(1e-6, Tw);
+    const t = clamp(state.swingT, 0, 1);
+    const u = smoothstep(t);
+
+    // Interpolate XY from lift->target
+    const sx = feet[i].lift.x + (feet[i].target.x - feet[i].lift.x) * u;
+    const sy = feet[i].lift.y + (feet[i].target.y - feet[i].lift.y) * u;
+
+    // Terrain height at current XY
+    const gz = getTerrainZ(sx, sy);
+
+    // Z arc with clearance
+    const zArc = cfg.CLEARANCE * Math.sin(Math.PI * u);
+    let sz = gz + zArc;
+
+    // Soft landing: near touchdown, blend toward ground
+    if (t > 0.85) {
+      const k = (t - 0.85) / 0.15;
+      const blend = smoothstep(clamp(k, 0, 1));
+      sz = sz * (1 - blend) + gz * blend;
+    }
+
+    // Enforce max swing foot speed
+    const px = feet[i].pos.x, py = feet[i].pos.y, pz = feet[i].pos.z;
+    const dd = Math.hypot(sx - px, sy - py, sz - pz);
+    const maxMove = cfg.FOOT_SPEED_MAX * dt;
+    if (dd > maxMove && dd > 1e-9) {
+      const r = maxMove / dd;
+      feet[i].pos.x = px + (sx - px)*r;
+      feet[i].pos.y = py + (sy - py)*r;
+      feet[i].pos.z = pz + (sz - pz)*r;
+    } else {
+      feet[i].pos.x = sx;
+      feet[i].pos.y = sy;
+      feet[i].pos.z = sz;
+    }
+
+    // Touchdown
+    if (state.swingT >= 1) {
+      feet[i].pos = { ...feet[i].target };
+      feet[i].pos.z = getTerrainZ(feet[i].pos.x, feet[i].pos.y);
+      feet[i].mode = 'STANCE';
+      feet[i].anchor = { ...feet[i].pos };
+
+      // Choose next swing leg if still active command; otherwise stop.
+      if (state.activeCmd && !state.hardStop) {
+        beginSwing(nextSwingLegIndex(i));
+      } else {
+        state.swingIdx = -1;
+        state.swingT = 0;
+      }
+    }
+  }
+
+  // =========================================================
+  // 8) Physics update (fixed 60Hz)
+  // =========================================================
+  function integrateBody(dt) {
+    // Convert body-frame translation into world-frame (yaw only for planar motion).
+    const vx_b = state.uf.x * cfg.V_MAX;
+    const vy_b = state.uf.y * cfg.V_MAX;
+    const vz   = state.uf.z * cfg.Z_RATE_MAX;
+
+    const c = Math.cos(state.yaw);
+    const s = Math.sin(state.yaw);
+    const vx_w = c*vx_b - s*vy_b;
+    const vy_w = s*vx_b + c*vy_b;
+
+    state.x += vx_w * dt;
+    state.y += vy_w * dt;
+    state.z += vz * dt;
+
+    state.roll  = wrapPi(state.roll  + (state.uf.roll  * cfg.W_ROLL_MAX)  * dt);
+    state.pitch = wrapPi(state.pitch + (state.uf.pitch * cfg.W_PITCH_MAX) * dt);
+    state.yaw   = wrapPi(state.yaw   + (state.uf.yaw   * cfg.W_YAW_MAX)   * dt);
+  }
+
+  function floorPushUp() {
+    const verts = computeBodyVerticesWorld();
+    let maxPen = 0;
+    for (const v of verts) {
+      const gz = getTerrainZ(v.x, v.y);
+      if (v.z < gz) maxPen = Math.max(maxPen, gz - v.z);
+    }
+    if (maxPen > 0) {
+      state.z += maxPen;
+      // prevent further downward motion by clearing down command a bit
+      if (state.uf.z < 0) state.uf.z = 0;
+    }
+  }
+
+  function updateShock(dt) {
+    const dRoll = wrapPi(state.roll - state.prevRoll) / Math.max(1e-6, dt);
+    const dPitch = wrapPi(state.pitch - state.prevPitch) / Math.max(1e-6, dt);
+    state.prevRoll = state.roll;
+    state.prevPitch = state.pitch;
+
+    if (Math.abs(dRoll) > cfg.SHOCK_RATE || Math.abs(dPitch) > cfg.SHOCK_RATE) {
+      // Hard stop + re-anchor stance feet
+      state.hardStop = true;
+      state.uf.x = state.uf.y = state.uf.z = 0;
+      state.uf.roll = state.uf.pitch = state.uf.yaw = 0;
+      forceAllStance();
+    }
+  }
+
+  function updateStability(dt) {
+    // Hull from stance feet only
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      if (feet[i].mode === 'STANCE') {
+        pts.push({ x: feet[i].anchor.x, y: feet[i].anchor.y });
+      }
+    }
+    const hull = convexHull(pts);
+    const com = { x: state.x, y: state.y };
+    const { margin } = stabilityMargin(com, hull);
+
+    if (margin < cfg.MARGIN_THRESH) state.unstableCount++;
+    else state.unstableCount = 0;
+
+    // Optional: if unstable for N frames, freeze translation (planner warning)
+    if (state.unstableCount >= cfg.N_FRAMES) {
+      // Freeze planar motion but allow user to relevel / lift.
+      state.uf.x = 0;
+      state.uf.y = 0;
+    }
+
+    return { hull, margin };
+  }
+
+  function physicsStep(dt) {
+    // Determine active command state
+    state.activeCmd = isCommandActive() && !state.hardStop;
+
+    // Stop / restart logic
+    if (!state.wasActiveCmd && state.activeCmd) {
+      // Restart: re-anchor and restart scheduler from current positions
+      state.hardStop = false; // allow movement again
+      restartSchedulerFromCurrent();
+    }
+
+    // Stopped means no active movement command
+    state.stopped = !state.activeCmd;
+
+    // If hard stop, do nothing except allow manual reset (R) or CTRL leveling
+    if (!state.hardStop) {
+      integrateBody(dt);
+      floorPushUp();
+    }
+
+    // Update shock after pose update (placeholder)
+    updateShock(dt);
+
+    // World-lock stance feet anchors remain fixed.
+    // The swing foot moves; when stopped, finish swing then stop.
+    if (!state.hardStop) {
+      if (state.swingIdx >= 0) {
+        updateSwing(dt);
+      } else {
+        // If active command and not currently swinging, begin next swing.
+        if (state.activeCmd) beginSwing(waveOrder[0]);
+      }
+    }
+
+    // If stopped and not swinging: ensure all stance anchors match current positions (should already).
+    if (state.stopped && state.swingIdx < 0) {
+      for (let i = 0; i < 6; i++) {
+        feet[i].mode = 'STANCE';
+        feet[i].pos = { ...feet[i].anchor };
+      }
+    }
+
+    state.wasActiveCmd = state.activeCmd;
+
+    // Stability update
+    return updateStability(dt);
+  }
+
+  // =========================================================
+  // 9) Initialization
+  // =========================================================
+  function initFeetToNeutral() {
+    // Place each foot at its neutral point transformed to world and snapped to terrain.
+    for (let i = 0; i < 6; i++) {
+      const side = legs[i].side;
+      const nB = neutralFeetBody[side];
+      const pW = bodyToWorld({ x: nB.x, y: nB.y, z: 0 });
+      pW.z = getTerrainZ(pW.x, pW.y);
+      feet[i].anchor = { ...pW };
+      feet[i].pos = { ...pW };
+      feet[i].target = { ...pW };
+      feet[i].lift = { ...pW };
+      feet[i].mode = 'STANCE';
+    }
+    state.swingIdx = -1;
+    state.swingT = 0;
+  }
+
+  function resetAll() {
+    state.x = state.y = 0;
+    state.z = 2.0;
+    state.roll = state.pitch = 0;
+    state.yaw = 0;
+
+    state.u =  { x:0,y:0,z:0, roll:0,pitch:0,yaw:0 };
+    state.uf = { x:0,y:0,z:0, roll:0,pitch:0,yaw:0 };
+
+    state.prevRoll = 0;
+    state.prevPitch = 0;
+
+    state.hardStop = false;
+    state.stopped = false;
+    state.unstableCount = 0;
+
+    state.swingIdx = -1;
+    state.swingT = 0;
+    state.wasActiveCmd = false;
+    state.activeCmd = false;
+
+    initFeetToNeutral();
+  }
+
+  resetAll();
+
+  // =========================================================
+  // 10) Rendering utilities
+  // =========================================================
+  const sideCanvas = document.getElementById('side');
+  const polyCanvas = document.getElementById('poly');
+  const ctxTop  = topCanvas.getContext('2d');
+  const ctxSide = sideCanvas.getContext('2d');
+  const ctxPoly = polyCanvas.getContext('2d');
+
+  const topReadout = document.getElementById('topReadout');
+  const gaitReadout = document.getElementById('gaitReadout');
+  const sideReadout = document.getElementById('sideReadout');
+  const statusPill = document.getElementById('statusPill');
+  const marginPill = document.getElementById('marginPill');
+
+  let topSize = { w: 0, h: 0 };
+  let sideSize = { w: 0, h: 0 };
+  let polySize = { w: 0, h: 0 };
+
+  function getCss(varName){
+    return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+  }
+
+  function resizeCanvas(c){
+    const dpr = Math.max(1, Math.min(2.5, window.devicePixelRatio || 1));
+    const r = c.getBoundingClientRect();
+    c.width  = Math.floor(r.width  * dpr);
+    c.height = Math.floor(r.height * dpr);
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: r.width, h: r.height };
+  }
+
+  function onResize(){
+    topSize  = resizeCanvas(topCanvas);
+    sideSize = resizeCanvas(sideCanvas);
+    polySize = resizeCanvas(polyCanvas);
+  }
+  window.addEventListener('resize', onResize);
+  onResize();
+
+  function projectTop(size){
+    return (wx, wy) => {
+      const cx = size.w/2;
+      const cy = size.h/2;
+      const half = cfg.TOP_HALF_EXTENT;
+      const sx = cx + (wx - state.x) * (size.w / (2*half));
+      const sy = cy - (wy - state.y) * (size.w / (2*half));
+      return [sx, sy];
+    };
+  }
+
+  function projectSideXz(wx, wz){
+    const cx = sideSize.w/2;
+    const cy = sideSize.h/2;
+    const halfX = cfg.SIDE_HALF_EXTENT_X;
+    const ratio = sideSize.h / sideSize.w;
+    const halfZ = halfX * ratio;
+    const sx = cx + (wx - state.x) * (sideSize.w / (2*halfX));
+    const sy = cy - (wz - state.z) * (sideSize.h / (2*halfZ));
+    return [sx, sy];
+  }
+
+  function drawGrid(ctx, size, type){
+    ctx.clearRect(0,0,size.w,size.h);
+    const step = cfg.GRID_STEP;
+
+    if (type === 'top') {
+      const half = cfg.TOP_HALF_EXTENT;
+      const ratio = size.h / size.w;
+      const yHalf = half * ratio;
+
+      const x0 = state.x - half, x1 = state.x + half;
+      const y0 = state.y - yHalf, y1 = state.y + yHalf;
+
+      const startX = Math.floor(x0/step)*step;
+      const startY = Math.floor(y0/step)*step;
+
+      const proj = projectTop(size);
+
+      for (let x = startX; x <= x1 + step; x += step) {
+        const [sx] = proj(x, state.y);
+        const isBold = (Math.round(x/step) % cfg.GRID_BOLD_EVERY) === 0;
+        ctx.beginPath();
+        ctx.strokeStyle = isBold ? getCss('--gridBold') : getCss('--grid');
+        ctx.lineWidth = isBold ? 1.5 : 1;
+        ctx.moveTo(sx, 0); ctx.lineTo(sx, size.h);
+        ctx.stroke();
+      }
+
+      for (let y = startY; y <= y1 + step; y += step) {
+        const [,sy] = proj(state.x, y);
+        const isBold = (Math.round(y/step) % cfg.GRID_BOLD_EVERY) === 0;
+        ctx.beginPath();
+        ctx.strokeStyle = isBold ? getCss('--gridBold') : getCss('--grid');
+        ctx.lineWidth = isBold ? 1.5 : 1;
+        ctx.moveTo(0, sy); ctx.lineTo(size.w, sy);
+        ctx.stroke();
+      }
+    } else {
+      // side grid in XZ
+      const halfX = cfg.SIDE_HALF_EXTENT_X;
+      const ratio = size.h / size.w;
+      const halfZ = halfX * ratio;
+
+      const x0 = state.x - halfX, x1 = state.x + halfX;
+      const z0 = state.z - halfZ, z1 = state.z + halfZ;
+
+      const startX = Math.floor(x0/step)*step;
+      const startZ = Math.floor(z0/step)*step;
+
+      for (let x = startX; x <= x1 + step; x += step) {
+        const [sx] = projectSideXz(x, state.z);
+        const isBold = (Math.round(x/step) % cfg.GRID_BOLD_EVERY) === 0;
+        ctx.beginPath();
+        ctx.strokeStyle = isBold ? getCss('--gridBold') : getCss('--grid');
+        ctx.lineWidth = isBold ? 1.5 : 1;
+        ctx.moveTo(sx, 0); ctx.lineTo(sx, size.h);
+        ctx.stroke();
+      }
+
+      for (let z = startZ; z <= z1 + step; z += step) {
+        const [,sy] = projectSideXz(state.x, z);
+        const isBold = (Math.round(z/step) % cfg.GRID_BOLD_EVERY) === 0;
+        ctx.beginPath();
+        ctx.strokeStyle = isBold ? getCss('--gridBold') : getCss('--grid');
+        ctx.lineWidth = isBold ? 1.5 : 1;
+        ctx.moveTo(0, sy); ctx.lineTo(size.w, sy);
+        ctx.stroke();
+      }
+
+      // Terrain line (flat now)
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(226,232,240,0.4)';
+      ctx.lineWidth = 2;
+      let first = true;
+      const drawStep = step/4;
+      for (let wx = x0; wx <= x1; wx += drawStep) {
+        const hz = getTerrainZ(wx, 0);
+        const [sx, sy] = projectSideXz(wx, hz);
+        if (first) { ctx.moveTo(sx, sy); first = false; }
+        else ctx.lineTo(sx, sy);
+      }
+      ctx.stroke();
+    }
+  }
+
+  function drawSectors(ctx, proj){
+    const [cx, cy] = proj(state.x, state.y);
+    const rBig = cfg.TOP_HALF_EXTENT * 1.5;
+    ctx.strokeStyle = getCss('--sectorLine');
+    ctx.setLineDash([5,5]);
+    ctx.lineWidth = 1;
+
+    for (let i = 0; i < 6; i++) {
+      const boundary = (i*60 + 30) * Math.PI/180; // boundaries between side normals
+      const ang = state.yaw + boundary;
+      const ex = state.x + rBig*Math.cos(ang);
+      const ey = state.y + rBig*Math.sin(ang);
+      const [sx, sy] = proj(ex, ey);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(sx, sy);
+      ctx.stroke();
+    }
+
+    ctx.setLineDash([]);
+  }
+
+  function drawArrowLine(ctx, p0, p1, color, label){
+    const dx = p1[0]-p0[0], dy = p1[1]-p0[1];
+    const len = Math.hypot(dx,dy);
+    if (len < 2) return;
+    const ang = Math.atan2(dy,dx);
+    const head = 8;
+
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.moveTo(p0[0], p0[1]);
+    ctx.lineTo(p1[0], p1[1]);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.moveTo(p1[0], p1[1]);
+    ctx.lineTo(p1[0]-head*Math.cos(ang - Math.PI/7), p1[1]-head*Math.sin(ang - Math.PI/7));
+    ctx.lineTo(p1[0]-head*Math.cos(ang + Math.PI/7), p1[1]-head*Math.sin(ang + Math.PI/7));
+    ctx.fill();
+
+    if (label) {
+      ctx.fillStyle = '#fff';
+      ctx.font = '700 11px system-ui';
+      ctx.fillText(label, p1[0] + (dx>0?8:-16), p1[1] + (dy>0?14:-6));
+    }
+  }
+
+  function drawAxesTop(ctx, proj){
+    const o = { x: state.x, y: state.y, z: state.z };
+    const s = 0.8;
+
+    const xAxis = rotateRPY({x:1,y:0,z:0}, state.roll, state.pitch, state.yaw);
+    const yAxis = rotateRPY({x:0,y:1,z:0}, state.roll, state.pitch, state.yaw);
+
+    const xEnd = { x: o.x + xAxis.x*s, y: o.y + xAxis.y*s };
+    const yEnd = { x: o.x + yAxis.x*s, y: o.y + yAxis.y*s };
+
+    const p0 = proj(o.x, o.y);
+    const px = proj(xEnd.x, xEnd.y);
+    const py = proj(yEnd.x, yEnd.y);
+
+    drawArrowLine(ctx, p0, px, getCss('--accent'), 'X');
+    drawArrowLine(ctx, p0, py, getCss('--accent2'), 'Y');
+  }
+
+  function drawRollIndicator(ctx) {
+    // Small roll meter at bottom-right of side panel
+    const r = state.roll;
+    const cx = sideSize.w - 60;
+    const cy = sideSize.h - 50;
+    const R = 18;
+
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+    ctx.lineWidth = 2;
+    ctx.arc(cx, cy, R, Math.PI*0.75, Math.PI*2.25);
+    ctx.stroke();
+
+    const a = clamp(r, -Math.PI/3, Math.PI/3);
+    const ang = -Math.PI/2 + a;
+    const x1 = cx + R*Math.cos(ang);
+    const y1 = cy + R*Math.sin(ang);
+
+    ctx.beginPath();
+    ctx.strokeStyle = getCss('--accent2');
+    ctx.lineWidth = 3;
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 10px system-ui';
+    ctx.fillText('ROLL', cx, cy + 30);
+
+    ctx.restore();
+  }
+
+  function drawBodyTop(ctx, proj, vertsW){
+    // Full hex prism in TOP view (XY projection). BODY_H is real (1 unit),
+    // so with pitch/roll the top & bottom faces separate in XY.
+    // Top-down camera: draw low-Z faces first (painter's order).
+
+    const faces = [];
+    faces.push({ kind: 'bottom', idx: [6,7,8,9,10,11], fill: getCss('--bodyFillSide'), stroke: getCss('--bodyStroke'), lw: 1.1 });
+    faces.push({ kind: 'top',    idx: [0,1,2,3,4,5],    fill: getCss('--bodyFill'),     stroke: getCss('--bodyStroke'), lw: 1.2 });
+    for (let i = 0; i < 6; i++) {
+      const n = (i + 1) % 6;
+      faces.push({ kind: 'side', idx: [i, n, n+6, i+6], fill: getCss('--bodyFillSide'), stroke: getCss('--strutStroke'), lw: 1.0 });
+    }
+
+    for (const f of faces) {
+      let sum = 0;
+      for (const k of f.idx) sum += vertsW[k].z;
+      f.depth = sum / f.idx.length;
+    }
+    faces.sort((a,b) => a.depth - b.depth);
+
+    for (const f of faces) {
+      const pts = f.idx.map(k => proj(vertsW[k].x, vertsW[k].y));
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+      ctx.fillStyle = f.fill;
+      ctx.strokeStyle = f.stroke;
+      ctx.lineWidth = f.lw;
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Front flat-side marker (between vertices 5 and 0 on the TOP face)
+    const p0 = proj(vertsW[0].x, vertsW[0].y);
+    const p5 = proj(vertsW[5].x, vertsW[5].y);
+    ctx.beginPath();
+    ctx.strokeStyle = getCss('--cornerDot');
+    ctx.lineWidth = 3;
+    ctx.moveTo(p5[0], p5[1]);
+    ctx.lineTo(p0[0], p0[1]);
+    ctx.stroke();
+
+    // Center dot
+    const [cx, cy] = proj(state.x, state.y);
+    ctx.beginPath();
+    ctx.fillStyle = '#fff';
+    ctx.arc(cx, cy, 3, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  function drawBodySide(ctx, vertsW) {
+    // Full hex prism in SIDE view (XZ projection). Camera looks along +Y,
+    // so depth-sort faces by average world-Y (farther first).
+
+    const faces = [];
+    faces.push({ kind: 'top',    idx: [0,1,2,3,4,5],    fill: getCss('--bodyFill'),     stroke: getCss('--bodyStroke'),  lw: 1.2 });
+    faces.push({ kind: 'bottom', idx: [6,7,8,9,10,11],  fill: getCss('--bodyFillSide'), stroke: getCss('--bodyStroke'),  lw: 1.1 });
+    for (let i = 0; i < 6; i++) {
+      const n = (i + 1) % 6;
+      faces.push({ kind: 'side', idx: [i, n, n+6, i+6], fill: getCss('--bodyFillSide'), stroke: getCss('--strutStroke'), lw: 1.0 });
+    }
+
+    for (const f of faces) {
+      let sum = 0;
+      for (const k of f.idx) sum += vertsW[k].y;
+      f.depth = sum / f.idx.length;
+    }
+    faces.sort((a,b) => a.depth - b.depth);
+
+    for (const f of faces) {
+      const pts = f.idx.map(k => projectSideXz(vertsW[k].x, vertsW[k].z));
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+      ctx.fillStyle = f.fill;
+      ctx.strokeStyle = f.stroke;
+      ctx.lineWidth = f.lw;
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Bottom corner dots (helps read height = 1 unit)
+    ctx.fillStyle = getCss('--cornerDot');
+    for (let k = 6; k < 12; k++) {
+      const p = projectSideXz(vertsW[k].x, vertsW[k].z);
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], 3, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // Body center marker
+    const C = projectSideXz(state.x, state.z);
+    ctx.beginPath();
+    ctx.fillStyle = '#fff';
+    ctx.arc(C[0], C[1], 3, 0, Math.PI*2);
+    ctx.fill();
+
+    // Axes hint in side view: X (forward) and Z (up)
+    const fwd = rotateRPY({x:1,y:0,z:0}, 0, state.pitch, state.yaw);
+    const zAxisW = rotateRPY({x:0,y:0,z:1}, state.roll, state.pitch, state.yaw);
+
+    const xEndW = { x: state.x + fwd.x*1.0, z: state.z + fwd.z*1.0 };
+    const zEndW = { x: state.x + zAxisW.x*1.0, z: state.z + zAxisW.z*1.0 };
+
+    const Px = projectSideXz(xEndW.x, xEndW.z);
+    const Pz = projectSideXz(zEndW.x, zEndW.z);
+
+    drawArrowLine(ctx, C, Px, getCss('--accent'), 'X');
+    drawArrowLine(ctx, C, Pz, getCss('--accent3'), 'Z');
+  }
+
+  function drawFeetTop(ctx, proj, hull, margin) {
+    // Draw support polygon
+    if (hull.length >= 3) {
+      ctx.beginPath();
+      const p0 = proj(hull[0].x, hull[0].y);
+      ctx.moveTo(p0[0], p0[1]);
+      for (let i = 1; i < hull.length; i++) {
+        const p = proj(hull[i].x, hull[i].y);
+        ctx.lineTo(p[0], p[1]);
+      }
+      ctx.closePath();
+      ctx.fillStyle = getCss('--footFill');
+      ctx.strokeStyle = getCss('--footStroke');
+      ctx.lineWidth = 1.5;
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // COM marker
+    const [cx, cy] = proj(state.x, state.y);
+    ctx.beginPath();
+    ctx.fillStyle = getCss('--accent3');
+    ctx.arc(cx, cy, 4, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.strokeStyle = getCss('--accent3');
+    ctx.lineWidth = 1;
+    ctx.moveTo(cx-6, cy); ctx.lineTo(cx+6, cy);
+    ctx.moveTo(cx, cy-6); ctx.lineTo(cx, cy+6);
+    ctx.stroke();
+
+    // Margin circle (visual)
+    const scale = topSize.w / (2 * cfg.TOP_HALF_EXTENT);
+    ctx.beginPath();
+    ctx.setLineDash([2,2]);
+    ctx.strokeStyle = 'rgba(74, 222, 128, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.arc(cx, cy, Math.abs(margin)*scale, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw feet points and target marker
+    ctx.font = '9px monospace';
+    for (let i = 0; i < 6; i++) {
+      const f = feet[i];
+      const p = proj(f.pos.x, f.pos.y);
+
+      // Connector to neutral body-side point (planner visual only)
+      const nB = neutralFeetBody[legs[i].side];
+      const nW = bodyToWorld({ x:nB.x, y:nB.y, z:0 });
+      const pn = proj(nW.x, nW.y);
+      ctx.beginPath();
+      ctx.setLineDash([3,3]);
+      ctx.strokeStyle = getCss('--footLine');
+      ctx.lineWidth = 1;
+      ctx.moveTo(pn[0], pn[1]);
+      ctx.lineTo(p[0], p[1]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const isSwing = (f.mode === 'SWING');
+      ctx.beginPath();
+      ctx.fillStyle = isSwing ? getCss('--swing') : getCss('--footStroke');
+      ctx.arc(p[0], p[1], isSwing ? 4 : 3, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.fillStyle = '#fff';
+      ctx.fillText(legs[i].name, p[0] + 6, p[1] - 6);
+
+      if (isSwing) {
+        const pt = proj(f.target.x, f.target.y);
+        ctx.beginPath();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4,4]);
+        ctx.arc(pt[0], pt[1], 6, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  function drawFeetSide(ctx) {
+    // Draw stance feet at ground and swing foot with its arc
+    for (let i = 0; i < 6; i++) {
+      const f = feet[i];
+      const p = projectSideXz(f.pos.x, f.pos.z);
+      ctx.beginPath();
+      ctx.fillStyle = (f.mode === 'SWING') ? '#fff' : getCss('--footStroke');
+      ctx.arc(p[0], p[1], (f.mode === 'SWING') ? 4 : 3, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(226,232,240,0.85)';
+      ctx.font = '9px monospace';
+      ctx.fillText(legs[i].name, p[0] + 6, p[1] - 6);
+
+      if (f.mode === 'SWING') {
+        // show planned landing target
+        const pt = projectSideXz(f.target.x, f.target.z);
+        ctx.beginPath();
+        ctx.setLineDash([4,4]);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.2;
+        ctx.arc(pt[0], pt[1], 6, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  // =========================================================
+  // 11) Readouts
+  // =========================================================
+  function updateReadouts(info) {
+    const deg = (r) => (r*180/Math.PI);
+
+    topReadout.textContent =
+      `Pos (${state.x.toFixed(2)}, ${state.y.toFixed(2)}, ${state.z.toFixed(2)})  ` +
+      `Yaw ${deg(state.yaw).toFixed(1)}°  Pitch ${deg(state.pitch).toFixed(1)}°  Roll ${deg(state.roll).toFixed(1)}°`;
+
+    const { vx, vy, speed } = computeSpeedBody();
+    const freq = gaitFrequency(speed);
+
+    const swingName = (state.swingIdx >= 0) ? legs[state.swingIdx].name : '—';
+    const mode = state.hardStop ? 'HARD STOP' : (state.stopped ? 'IDLE' : 'ACTIVE');
+
+    gaitReadout.textContent =
+      `Wave · swing=${swingName} · swingT=${state.swingT.toFixed(2)} · freq=${freq.toFixed(2)}Hz · step≤${cfg.MAX_STEP.toFixed(2)}`;
+
+    sideReadout.textContent =
+      `Cmd(vx=${vx.toFixed(2)}, vy=${vy.toFixed(2)}, ω=${(state.uf.yaw*cfg.W_YAW_MAX).toFixed(2)} rad/s) · zRate=${(state.uf.z*cfg.Z_RATE_MAX).toFixed(2)}`;
+
+    const margin = info.margin;
+    marginPill.textContent = `Margin: ${margin.toFixed(2)} (thr ${cfg.MARGIN_THRESH.toFixed(2)})`;
+
+    // Status
+    let text = mode;
+    let color = 'var(--accent)';
+    if (state.hardStop) { text = 'HARD STOP (shock)'; color = 'var(--warn)'; }
+    else if (state.unstableCount >= cfg.N_FRAMES) { text = `UNSTABLE (${state.unstableCount})`; color = 'var(--amber)'; }
+    else if (state.stopped) { text = 'IDLE (finish swing then stop)'; color = 'var(--accent2)'; }
+    statusPill.textContent = text;
+    statusPill.style.color = color;
+  }
+
+  // =========================================================
+  // 12) Main loop (decoupled)
+  // =========================================================
+  let lastT = performance.now() / 1000;
+  let accum = 0;
+  const fixedDt = 1 / cfg.FIXED_HZ;
+
+  let lastRenderInfo = { hull: [], margin: 0 };
+
+  function render() {
+    // TOP
+    const projT = projectTop(topSize);
+    drawGrid(ctxTop, topSize, 'top');
+    drawSectors(ctxTop, projT);
+
+    const vertsW = computeBodyVerticesWorld();
+    drawBodyTop(ctxTop, projT, vertsW);
+    drawAxesTop(ctxTop, projT);
+
+    drawFeetTop(ctxTop, projT, lastRenderInfo.hull, lastRenderInfo.margin);
+
+    // SIDE
+    drawGrid(ctxSide, sideSize, 'side');
+    drawBodySide(ctxSide, vertsW);
+    drawFeetSide(ctxSide);
+    drawRollIndicator(ctxSide);
+
+    // POLY
+    const projP = projectTop(polySize);
+    drawGrid(ctxPoly, polySize, 'top');
+
+    // hull + COM + feet (simplified)
+    const hull = lastRenderInfo.hull;
+    if (hull.length >= 3) {
+      ctxPoly.beginPath();
+      const p0 = projP(hull[0].x, hull[0].y);
+      ctxPoly.moveTo(p0[0], p0[1]);
+      for (let i = 1; i < hull.length; i++) {
+        const p = projP(hull[i].x, hull[i].y);
+        ctxPoly.lineTo(p[0], p[1]);
+      }
+      ctxPoly.closePath();
+      ctxPoly.fillStyle = getCss('--footFill');
+      ctxPoly.strokeStyle = getCss('--footStroke');
+      ctxPoly.lineWidth = 1.5;
+      ctxPoly.fill();
+      ctxPoly.stroke();
+    }
+
+    // COM
+    const [cx, cy] = projP(state.x, state.y);
+    ctxPoly.beginPath();
+    ctxPoly.fillStyle = getCss('--accent3');
+    ctxPoly.arc(cx, cy, 4, 0, Math.PI*2);
+    ctxPoly.fill();
+
+    // Feet dots
+    ctxPoly.font = '9px monospace';
+    for (let i = 0; i < 6; i++) {
+      const f = feet[i];
+      const p = projP(f.pos.x, f.pos.y);
+      ctxPoly.beginPath();
+      ctxPoly.fillStyle = (f.mode === 'SWING') ? '#fff' : getCss('--footStroke');
+      ctxPoly.arc(p[0], p[1], 3, 0, Math.PI*2);
+      ctxPoly.fill();
+    }
+
+    updateReadouts(lastRenderInfo);
+  }
+
+  function tick(nowMs) {
+    const now = nowMs / 1000;
+    let dt = now - lastT;
+    lastT = now;
+
+    // Clamp dt to keep simulation stable
+    dt = Math.min(dt, 0.05);
+    accum = Math.min(accum + dt, cfg.MAX_ACCUM);
+
+    sampleInput();
+    updateKeyVisuals();
+
+    while (accum >= fixedDt) {
+      lowpass(fixedDt);
+      lastRenderInfo = physicsStep(fixedDt);
+      accum -= fixedDt;
+    }
+
+    render();
+    requestAnimationFrame(tick);
+  }
+
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
