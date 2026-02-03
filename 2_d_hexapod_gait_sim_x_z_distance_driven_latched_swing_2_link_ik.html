@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>2D (x–z) Distance-Driven Gait + Latched Swing + 2-Link IK</title>
+  <style>
+    :root{
+      --bg:#0b1220;
+      --panel:#0f1a2e;
+      --grid:rgba(148,163,184,0.12);
+      --gridBold:rgba(148,163,184,0.22);
+      --text:#e2e8f0;
+      --muted:#94a3b8;
+      --accent:#38bdf8;
+      --good:#4ade80;
+      --bad:#ef4444;
+      --warn:#f59e0b;
+    }
+    html,body{height:100%; margin:0; background:var(--bg); color:var(--text); font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;}
+    .wrap{display:flex; height:100%; flex-direction:column;}
+    canvas{flex:1; min-height:0; width:100%; display:block; background:linear-gradient(#0b1220,#070c16);}
+    .panel{
+      flex:1;
+      min-height:0;
+      width:100%;
+      max-width:none;
+      background:var(--panel);
+      border-top:1px solid rgba(148,163,184,0.15);
+      padding:14px 14px 10px 14px;
+      box-sizing:border-box;
+      overflow:auto;
+    }
+    h1{font-size:14px; margin:0 0 8px 0; font-weight:700; letter-spacing:0.2px;}
+    .row{display:flex; align-items:center; gap:10px; margin:10px 0;}
+    .row label{flex:1; font-size:12px; color:var(--muted);}
+    .row input[type="range"]{flex:1.6;}
+    .row .val{width:70px; text-align:right; font-variant-numeric:tabular-nums; color:var(--text); font-size:12px;}
+    .btns{display:flex; gap:10px; margin:10px 0 12px;}
+    button{
+      flex:1; padding:10px 10px; border-radius:10px;
+      border:1px solid rgba(148,163,184,0.2);
+      background:rgba(2,6,23,0.35);
+      color:var(--text); cursor:pointer;
+    }
+    button:hover{border-color:rgba(56,189,248,0.6);}
+    .small{
+      font-size:12px; color:var(--muted); line-height:1.35;
+      padding:10px; border-radius:10px;
+      border:1px solid rgba(148,163,184,0.15);
+      background:rgba(2,6,23,0.25);
+    }
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-variant-numeric:tabular-nums;}
+    .pill{
+      display:inline-block; padding:2px 8px; border-radius:999px;
+      border:1px solid rgba(148,163,184,0.2);
+      background:rgba(2,6,23,0.25);
+      color:var(--text); font-size:11px; margin-left:6px;
+    }
+    .sep{height:1px; background:rgba(148,163,184,0.14); margin:12px 0;}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="c"></canvas>
+  <div class="panel">
+    <h1>2D Gait (distance-driven) + Latched Swing + 2-Link IK</h1>
+
+    <div class="btns">
+      <button id="pauseBtn">Pause</button>
+      <button id="resetBtn">Reset</button>
+    </div>
+
+    <div class="row">
+      <label>Speed v (mm/s)</label>
+      <input id="v" type="range" min="-120" max="120" step="1" value="60">
+      <div class="val mono" id="vVal"></div>
+    </div>
+
+    <div class="row">
+      <label>StepLen S (mm)</label>
+      <input id="S" type="range" min="10" max="80" step="1" value="40">
+      <div class="val mono" id="SVal"></div>
+    </div>
+
+    <div class="row">
+      <label>Clearance h (mm)</label>
+      <input id="h" type="range" min="0" max="50" step="1" value="18">
+      <div class="val mono" id="hVal"></div>
+    </div>
+
+    <div class="row">
+      <label>Body height bodyY (mm)</label>
+      <input id="bodyY" type="range" min="30" max="140" step="1" value="85">
+      <div class="val mono" id="bodyYVal"></div>
+    </div>
+
+    <div class="row">
+      <label>Hip spacing (mm)</label>
+      <input id="hipSpace" type="range" min="60" max="220" step="1" value="140">
+      <div class="val mono" id="hipSpaceVal"></div>
+    </div>
+
+    <div class="row">
+      <label>Hip Z offset h<sub>z</sub> (mm)</label>
+      <input id="hipZ" type="range" min="-40" max="40" step="1" value="-15">
+      <div class="val mono" id="hipZVal"></div>
+    </div>
+
+    <div class="row">
+      <label>Link L1 (mm)</label>
+      <input id="L1" type="range" min="30" max="140" step="1" value="80">
+      <div class="val mono" id="L1Val"></div>
+    </div>
+
+    <div class="row">
+      <label>Link L2 (mm)</label>
+      <input id="L2" type="range" min="30" max="160" step="1" value="100">
+      <div class="val mono" id="L2Val"></div>
+    </div>
+
+    <div class="row">
+      <label>Zoom (px/mm)</label>
+      <input id="zoom" type="range" min="0.8" max="4.0" step="0.05" value="2.0">
+      <div class="val mono" id="zoomVal"></div>
+    </div>
+
+    <div class="row">
+      <label>Show reach annulus</label>
+      <input id="reach" type="checkbox" checked />
+      <div class="val mono"></div>
+    </div>
+
+    <div class="sep"></div>
+
+    <div class="small mono" id="status"></div>
+
+    <div class="sep"></div>
+
+    <div class="small">
+      Notes:
+      <ul style="margin:8px 0 0 18px; padding:0;">
+        <li>World: <span class="mono">x</span> along ground, <span class="mono">z</span> up, ground is <span class="mono">z=0</span>.</li>
+        <li>One leg is <span class="pill">SWING</span>, the other is <span class="pill">STANCE</span>. Switch happens when <span class="mono">halfDist ≥ S</span>.</li>
+        <li>Swing endpoints are latched at liftoff: <span class="mono">p1 = p0 + (sign(v)*S, 0)</span>.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ---------- DOM ----------
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  const ui = {
+    v: document.getElementById('v'),
+    S: document.getElementById('S'),
+    h: document.getElementById('h'),
+    bodyY: document.getElementById('bodyY'),
+    hipSpace: document.getElementById('hipSpace'),
+    hipZ: document.getElementById('hipZ'),
+    L1: document.getElementById('L1'),
+    L2: document.getElementById('L2'),
+    zoom: document.getElementById('zoom'),
+    reach: document.getElementById('reach'),
+    pauseBtn: document.getElementById('pauseBtn'),
+    resetBtn: document.getElementById('resetBtn'),
+    vVal: document.getElementById('vVal'),
+    SVal: document.getElementById('SVal'),
+    hVal: document.getElementById('hVal'),
+    bodyYVal: document.getElementById('bodyYVal'),
+    hipSpaceVal: document.getElementById('hipSpaceVal'),
+    hipZVal: document.getElementById('hipZVal'),
+    L1Val: document.getElementById('L1Val'),
+    L2Val: document.getElementById('L2Val'),
+    zoomVal: document.getElementById('zoomVal'),
+    status: document.getElementById('status'),
+  };
+
+  // ---------- Math helpers ----------
+  const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
+  const signNZ = (v) => (v >= 0 ? 1 : -1); // sign(v) in {+1,-1}, even at v=0 uses +1
+
+  // u(s)=3s^2-2s^3
+  const smoothstep = (s) => 3*s*s - 2*s*s*s;
+  // b(s)=16 s^2 (1-s)^2
+  const bump = (s) => {
+    const t = 1 - s;
+    return 16 * s*s * t*t;
+  };
+
+  // Swing trajectory in BODY frame
+  function swingPos(p0B, p1B, s, clearance){
+    s = clamp(s, 0, 1);
+    const u = smoothstep(s);
+    const b = bump(s);
+    return {
+      x: (1-u)*p0B.x + u*p1B.x,
+      z: p0B.z + clearance*b
+    };
+  }
+
+  // 2-link planar IK + knee-outward selection
+  function solve2LinkIK(x, z, L1, L2, preferSign /* = sign(hx) */){
+    const r2 = x*x + z*z;
+    const r = Math.sqrt(r2);
+
+    const reachable = (Math.abs(L1 - L2) <= r) && (r <= (L1 + L2));
+
+    let c2 = (r2 - L1*L1 - L2*L2) / (2*L1*L2);
+    c2 = clamp(c2, -1, 1);
+
+    const base = Math.max(0, 1 - c2*c2);
+    const s2a = Math.sqrt(base);
+
+    const candidates = [
+      { s2: +s2a },
+      { s2: -s2a },
+    ];
+
+    let best = null;
+    for (const cand of candidates){
+      const s2 = cand.s2;
+      const theta2 = Math.atan2(s2, c2);
+      const theta1 = Math.atan2(z, x) - Math.atan2(L2*s2, L1 + L2*c2);
+
+      const kneeX = L1 * Math.cos(theta1);
+      const score = preferSign * kneeX;
+
+      if (!best || score > best.score){
+        const kx = L1 * Math.cos(theta1);
+        const kz = L1 * Math.sin(theta1);
+        const fx = kx + L2 * Math.cos(theta1 + theta2);
+        const fz = kz + L2 * Math.sin(theta1 + theta2);
+
+        best = { theta1, theta2, kx, kz, fx, fz, reachable, r, score };
+      }
+    }
+    return best;
+  }
+
+  // ---------- State ----------
+  const st = {
+    paused: false,
+    lastTs: null,
+
+    // Body pose in WORLD (W)
+    bodyX: 0,
+    bodyY: 85,
+
+    // Gait timing (distance-driven)
+    stepLen: 40,
+    halfDist: 0,
+    swingIdx: 0,
+
+    // Two hips in BODY frame (B)
+    hips: [
+      { hx: -70, hz: -15 },
+      { hx: +70, hz: -15 },
+    ],
+
+    // Per-leg anchors and latched swing endpoints in BODY frame (B)
+    legs: [
+      { anchorB:{x:0,z:0}, p0B:{x:0,z:0}, p1B:{x:0,z:0} },
+      { anchorB:{x:0,z:0}, p0B:{x:0,z:0}, p1B:{x:0,z:0} },
+    ],
+
+    pxPerMm: 2.0,
+    groundPadPx: 70,
+    dtMax: 0.10,
+    clearance: 18,
+
+    L1: 80,
+    L2: 100,
+  };
+
+  function syncUItoState(){
+    st.bodyY = +ui.bodyY.value;
+    st.stepLen = +ui.S.value;
+    st.clearance = +ui.h.value;
+    st.L1 = +ui.L1.value;
+    st.L2 = +ui.L2.value;
+    st.pxPerMm = +ui.zoom.value;
+
+    const hipSpace = +ui.hipSpace.value;
+    const hipZ = +ui.hipZ.value;
+    st.hips[0].hx = -hipSpace/2;
+    st.hips[1].hx = +hipSpace/2;
+    st.hips[0].hz = hipZ;
+    st.hips[1].hz = hipZ;
+
+    ui.vVal.textContent = `${ui.v.value}`;
+    ui.SVal.textContent = `${ui.S.value}`;
+    ui.hVal.textContent = `${ui.h.value}`;
+    ui.bodyYVal.textContent = `${ui.bodyY.value}`;
+    ui.hipSpaceVal.textContent = `${ui.hipSpace.value}`;
+    ui.hipZVal.textContent = `${ui.hipZ.value}`;
+    ui.L1Val.textContent = `${ui.L1.value}`;
+    ui.L2Val.textContent = `${ui.L2.value}`;
+    ui.zoomVal.textContent = `${(+ui.zoom.value).toFixed(2)}`;
+  }
+
+  // Latch swing endpoints at liftoff
+  function latchSwing(i, v){
+    const leg = st.legs[i];
+    leg.p0B = { x: leg.anchorB.x, z: leg.anchorB.z };
+    const dir = signNZ(v);
+    leg.p1B = { x: leg.p0B.x + dir * st.stepLen, z: leg.p0B.z };
+  }
+
+  // Initialize stance anchors on ground
+  function resetSim(){
+    st.bodyX = 0;
+    st.halfDist = 0;
+    st.swingIdx = 0;
+    st.lastTs = null;
+
+    const footOffset = 25; // mm
+    for (let i=0;i<2;i++){
+      const hx = st.hips[i].hx;
+      const sgn = signNZ(hx);
+      st.legs[i].anchorB = {
+        x: hx + sgn * footOffset,
+        z: -st.bodyY
+      };
+    }
+
+    latchSwing(st.swingIdx, +ui.v.value);
+  }
+
+  // Simulation step (distance-driven phase)
+  function step(dt){
+    dt = clamp(dt, 0, st.dtMax);
+
+    const v = +ui.v.value;
+    const dxTotal = v * dt;
+    const moveSign = (dxTotal >= 0 ? 1 : -1);
+    let remaining = Math.abs(dxTotal);
+
+    while (remaining > 1e-9){
+      const distToBoundary = st.stepLen - st.halfDist;
+      const seg = Math.min(remaining, distToBoundary);
+
+      // bodyX += dx
+      st.bodyX += moveSign * seg;
+
+      // stance anchor x -= dx (no slip)
+      const stanceIdx = 1 - st.swingIdx;
+      st.legs[stanceIdx].anchorB.x -= moveSign * seg;
+
+      st.halfDist += seg;
+      remaining -= seg;
+
+      if (st.halfDist >= st.stepLen - 1e-9){
+        // Touchdown: swing becomes stance
+        const swingLeg = st.legs[st.swingIdx];
+        swingLeg.anchorB.x = swingLeg.p1B.x;
+        swingLeg.anchorB.z = -st.bodyY;
+
+        // Switch swing leg
+        st.swingIdx = stanceIdx;
+        st.halfDist = 0;
+
+        // Latch new swing
+        latchSwing(st.swingIdx, v);
+      }
+    }
+
+    // Enforce stance foot on ground
+    const stanceIdx = 1 - st.swingIdx;
+    st.legs[stanceIdx].anchorB.z = -st.bodyY;
+  }
+
+  // ---------- Rendering ----------
+  function resize(){
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(canvas.clientWidth * dpr);
+    canvas.height = Math.floor(canvas.clientHeight * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+
+  function draw(){
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    ctx.clearRect(0,0,w,h);
+
+    // Camera follows body center in x
+    const camX = st.bodyX;
+    const pxPerMm = st.pxPerMm;
+    const groundYpx = h - st.groundPadPx;
+
+    const wx = (xW) => (xW - camX) * pxPerMm + w*0.5;
+    const wz = (zW) => groundYpx - zW * pxPerMm;
+
+    // Grid
+    ctx.lineWidth = 1;
+    for (let gx = -300; gx <= 300; gx += 20){
+      const x = wx(camX + gx);
+      ctx.strokeStyle = (gx % 100 === 0) ? getCSS('--gridBold') : getCSS('--grid');
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    for (let gz = 0; gz <= 180; gz += 20){
+      const y = wz(gz);
+      ctx.strokeStyle = (gz % 100 === 0) ? getCSS('--gridBold') : getCSS('--grid');
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    // Ground line z=0
+    ctx.strokeStyle = "rgba(148,163,184,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, wz(0));
+    ctx.lineTo(w, wz(0));
+    ctx.stroke();
+
+    // Phase progress s
+    const s = clamp(st.halfDist / st.stepLen, 0, 1);
+
+    // Body rectangle in WORLD
+    const bodyW = Math.abs(st.hips[1].hx - st.hips[0].hx) + 70;
+    const bodyH = 40;
+    const bodyXW = st.bodyX;
+    const bodyZW = st.bodyY;
+
+    ctx.fillStyle = "rgba(56,189,248,0.22)";
+    ctx.strokeStyle = "rgba(56,189,248,0.7)";
+    ctx.lineWidth = 2;
+    roundRectPath(ctx,
+      wx(bodyXW - bodyW/2), wz(bodyZW + bodyH/2),
+      bodyW*pxPerMm, bodyH*pxPerMm,
+      12
+    );
+    ctx.fill();
+    ctx.stroke();
+
+    // Legs
+    for (let i=0;i<2;i++){
+      const hipB = st.hips[i];
+      const hipW = {
+        x: st.bodyX + hipB.hx,
+        z: st.bodyY + hipB.hz
+      };
+
+      // Desired foot in BODY frame
+      let footB;
+      if (i === st.swingIdx){
+        const leg = st.legs[i];
+        footB = swingPos(leg.p0B, leg.p1B, s, st.clearance);
+      } else {
+        footB = { x: st.legs[i].anchorB.x, z: st.legs[i].anchorB.z };
+      }
+
+      // Convert to HIP frame for IK
+      const xH = footB.x - hipB.hx;
+      const zH = footB.z - hipB.hz;
+
+      const preferSign = signNZ(hipB.hx);
+      const sol = solve2LinkIK(xH, zH, st.L1, st.L2, preferSign);
+
+      // Reach annulus
+      if (ui.reach.checked){
+        const rMin = Math.abs(st.L1 - st.L2);
+        const rMax = (st.L1 + st.L2);
+
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(148,163,184,0.35)";
+        ctx.beginPath();
+        ctx.arc(wx(hipW.x), wz(hipW.z), rMax*pxPerMm, 0, Math.PI*2);
+        ctx.stroke();
+
+        ctx.strokeStyle = "rgba(148,163,184,0.20)";
+        ctx.beginPath();
+        ctx.arc(wx(hipW.x), wz(hipW.z), rMin*pxPerMm, 0, Math.PI*2);
+        ctx.stroke();
+      }
+
+      // Hip marker
+      ctx.fillStyle = "rgba(226,232,240,0.9)";
+      ctx.beginPath();
+      ctx.arc(wx(hipW.x), wz(hipW.z), 4, 0, Math.PI*2);
+      ctx.fill();
+
+      // FK knee/foot in WORLD
+      const kneeW = { x: hipW.x + sol.kx, z: hipW.z + sol.kz };
+      const footW = { x: hipW.x + sol.fx, z: hipW.z + sol.fz };
+
+      // Draw leg segments
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = (i === st.swingIdx) ? "rgba(245,158,11,0.95)" : "rgba(148,163,184,0.90)";
+      ctx.beginPath();
+      ctx.moveTo(wx(hipW.x), wz(hipW.z));
+      ctx.lineTo(wx(kneeW.x), wz(kneeW.z));
+      ctx.lineTo(wx(footW.x), wz(footW.z));
+      ctx.stroke();
+
+      // Planned swing arc
+      if (i === st.swingIdx){
+        const leg = st.legs[i];
+        ctx.strokeStyle = "rgba(245,158,11,0.35)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let j=0;j<=50;j++){
+          const sj = j/50;
+          const pB = swingPos(leg.p0B, leg.p1B, sj, st.clearance);
+          const pW = { x: st.bodyX + pB.x, z: st.bodyY + pB.z };
+          const X = wx(pW.x), Y = wz(pW.z);
+          if (j===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);
+        }
+        ctx.stroke();
+      }
+
+      // Foot marker (green/red)
+      ctx.fillStyle = sol.reachable ? getCSS('--good') : getCSS('--bad');
+      ctx.beginPath();
+      ctx.arc(wx(footW.x), wz(footW.z), 5, 0, Math.PI*2);
+      ctx.fill();
+
+      // Label
+      ctx.fillStyle = "rgba(226,232,240,0.85)";
+      ctx.font = "12px ui-monospace, Menlo, Consolas, monospace";
+      const tag = (i === st.swingIdx) ? "SWING" : "STANCE";
+      ctx.fillText(`leg${i} ${tag}`, wx(hipW.x) - 30, wz(hipW.z) - 10);
+    }
+
+    // Status
+    const v = +ui.v.value;
+    const Tauto = (Math.abs(v) < 1e-6) ? Infinity : (2*st.stepLen / Math.abs(v));
+    ui.status.innerHTML =
+      `bodyX=${fmt(st.bodyX)} mm<br>` +
+      `bodyY=${fmt(st.bodyY)} mm<br>` +
+      `halfDist=${fmt(st.halfDist)} / S=${fmt(st.stepLen)} → s=${fmt(clamp(st.halfDist/st.stepLen,0,1))}<br>` +
+      `swingIdx=${st.swingIdx}<br>` +
+      `Tauto=2S/|v|=${(Tauto===Infinity ? "∞" : fmt(Tauto))} s<br>` +
+      `dt cap=${st.dtMax.toFixed(2)} s<br>` +
+      `zoom=${st.pxPerMm.toFixed(2)} px/mm`;
+  }
+
+  function fmt(x){ return (Math.round(x*100)/100).toFixed(2); }
+  function getCSS(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+  // CanvasRenderingContext2D.roundRect isn't supported everywhere; use a safe helper.
+  function roundRectPath(ctx, x, y, w, h, r){
+    r = Math.max(0, Math.min(r, w/2, h/2));
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,     x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x,     y + h, r);
+    ctx.arcTo(x,     y + h, x,     y,     r);
+    ctx.arcTo(x,     y,     x + w, y,     r);
+    ctx.closePath();
+  }
+
+  // ---------- Loop ----------
+  function loop(ts){
+    if (st.lastTs == null) st.lastTs = ts;
+    const dt = (ts - st.lastTs) / 1000;
+    st.lastTs = ts;
+
+    syncUItoState();
+
+    if (!st.paused){
+      // keep stance foot pinned to ground when bodyY changes
+      const stanceIdx = 1 - st.swingIdx;
+      st.legs[stanceIdx].anchorB.z = -st.bodyY;
+
+      step(dt);
+    }
+
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- Events ----------
+  ui.pauseBtn.addEventListener('click', () => {
+    st.paused = !st.paused;
+    ui.pauseBtn.textContent = st.paused ? 'Resume' : 'Pause';
+  });
+
+  ui.resetBtn.addEventListener('click', () => {
+    syncUItoState();
+    resetSim();
+  });
+
+  // Keyboard
+  window.addEventListener('keydown', (e) => {
+    if (e.key === ' '){ st.paused = !st.paused; ui.pauseBtn.textContent = st.paused ? 'Resume' : 'Pause'; }
+    if (e.key === 'r' || e.key === 'R'){ syncUItoState(); resetSim(); }
+    if (e.key === 'ArrowLeft'){ ui.v.value = Math.max(+ui.v.min, +ui.v.value - 5); }
+    if (e.key === 'ArrowRight'){ ui.v.value = Math.min(+ui.v.max, +ui.v.value + 5); }
+  });
+
+  // Resize (fallback if ResizeObserver missing)
+  if ('ResizeObserver' in window){
+    const ro = new ResizeObserver(() => { resize(); draw(); });
+    ro.observe(canvas);
+  } else {
+    window.addEventListener('resize', () => { resize(); draw(); });
+  }
+
+  // Start
+  syncUItoState();
+  resetSim();
+  resize();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
