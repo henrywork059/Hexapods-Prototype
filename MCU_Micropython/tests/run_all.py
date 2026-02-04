@@ -150,6 +150,7 @@ def main():
             "I2C_SCL": int(I2C_SCL),
             "I2C_FREQ": int(I2C_FREQ),
             "PCA9685_ADDR": int(PCA9685_ADDR),
+            "HARDWARE_CONFIRM": bool(hardware_ok),
         }
     )
 
