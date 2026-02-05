@@ -18,14 +18,15 @@ The current MVP goal is **repeatable flat-ground walking** using **relative coor
 6. Repository Layout (What matters)
 7. Quick Start — Simulation (PC)
 8. Quick Start — MicroPython (PCA9685 over I2C)
-9. Quick Start — Desktop GUI Viewer (sim_engine)
-10. Built-in Test Harness (Recommended before moving real legs)
-11. sim_engine Tests (Desktop)
-12. Current Assumed Defaults (MVP)
-13. Planning / Roadmap (Suggested order)
-14. Known Issues / Sharp Edges
-15. Internal Docs / References (in repo / project bundle)
-16. Safety note
+9. Quick Start — MuJoCo sim
+10. Quick Start — Desktop GUI Viewer (sim_engine)
+11. Built-in Test Harness (Recommended before moving real legs)
+12. sim_engine Tests (Desktop)
+13. Current Assumed Defaults (MVP)
+14. Planning / Roadmap (Suggested order)
+15. Known Issues / Sharp Edges
+16. Internal Docs / References (in repo / project bundle)
+17. Safety note
 
 ---
 
@@ -247,7 +248,24 @@ main.run()
 
 ---
 
-## 9. Quick Start — Desktop GUI Viewer (sim_engine)
+## 9. Quick Start — MuJoCo sim
+
+Use: `mujoco_sim/`
+
+```bash
+python -m mujoco_sim.generate_mjcf
+python -m mujoco_sim.run_mujoco --duration 10 --vx 20 --vy 0 --wz 0
+```
+
+To run headless with logs:
+
+```bash
+python -m mujoco_sim.run_mujoco --headless --duration 5 --vx 20 --log logs/mujoco_run.csv
+```
+
+---
+
+## 10. Quick Start — Desktop GUI Viewer (sim_engine)
 
 The desktop viewer renders the simplified 2D physics engine in `sim_engine/`.
 
@@ -265,7 +283,7 @@ python -c "from sim_engine.viewer_desktop.app import ViewerApp; from sim_engine.
 
 ---
 
-## 10. Built-in Test Harness (Recommended before moving real legs)
+## 11. Built-in Test Harness (Recommended before moving real legs)
 
 Run logic tests (no movement):
 
@@ -278,7 +296,7 @@ If hardware smoke tests are enabled in the test plan, start with tight clamps an
 
 ---
 
-## 11. sim_engine Tests (Desktop)
+## 12. sim_engine Tests (Desktop)
 
 From repo root:
 
@@ -288,7 +306,7 @@ python -m unittest discover sim_engine/tests
 
 ---
 
-## 12. Current Assumed Defaults (MVP)
+## 13. Current Assumed Defaults (MVP)
 
 ### Timing
 
@@ -320,7 +338,7 @@ If not overridden:
 
 ---
 
-## 13. Planning / Roadmap (Suggested order)
+## 14. Planning / Roadmap (Suggested order)
 
 ### Phase 0 — Bring-up safety
 
@@ -352,7 +370,7 @@ If not overridden:
 
 ---
 
-## 14. Known Issues / Sharp Edges
+## 15. Known Issues / Sharp Edges
 
 1. Some files may contain an extra first line with a single `\` (backslash), which breaks imports.
 
@@ -373,7 +391,7 @@ If not overridden:
 
 ---
 
-## 15. Internal Docs / References (in repo / project bundle)
+## 16. Internal Docs / References (in repo / project bundle)
 
 - `hexapod_control_logic_canvas.md` — control logic and planning notes
 - `hexapod_project_code_plan_build_validation_order.md` — build/validate order
@@ -384,6 +402,6 @@ If not overridden:
 
 ---
 
-## 16. Safety note
+## 17. Safety note
 
 Start with tight servo limits, low speeds, and ideally lift the robot off the ground for first motion tests.
