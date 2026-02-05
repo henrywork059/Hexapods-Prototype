@@ -4,10 +4,10 @@ This directory contains a lightweight MuJoCo model and runner wired into the exi
 
 ## Install
 
-Install MuJoCo Python bindings and dependencies:
+Install MuJoCo Python bindings and dependencies (PC):
 
 ```bash
-pip install mujoco
+pip install -r requirements.txt
 ```
 
 ## Generate the MJCF
