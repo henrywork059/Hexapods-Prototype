@@ -18,12 +18,14 @@ The current MVP goal is **repeatable flat-ground walking** using **relative coor
 6. Repository Layout (What matters)
 7. Quick Start — Simulation (PC)
 8. Quick Start — MicroPython (PCA9685 over I2C)
-9. Built-in Test Harness (Recommended before moving real legs)
-10. Current Assumed Defaults (MVP)
-11. Planning / Roadmap (Suggested order)
-12. Known Issues / Sharp Edges
-13. Internal Docs / References (in repo / project bundle)
-14. Safety note
+9. Quick Start — Desktop GUI Viewer (sim_engine)
+10. Built-in Test Harness (Recommended before moving real legs)
+11. sim_engine Tests (Desktop)
+12. Current Assumed Defaults (MVP)
+13. Planning / Roadmap (Suggested order)
+14. Known Issues / Sharp Edges
+15. Internal Docs / References (in repo / project bundle)
+16. Safety note
 
 ---
 
@@ -206,6 +208,8 @@ python -m simulation.sim_main --duration 4 --speed-v 40 --speed-wz 0 --dt 0.02
 
 Use the simulation to catch obvious parameter mistakes before moving hardware.
 
+**Legacy matplotlib viewer:** the 3D matplotlib viewer in `simulation/viewer.py` is still available for the legacy simulation stack.
+
 ---
 
 ## 8. Quick Start — MicroPython (PCA9685 over I2C)
@@ -243,7 +247,25 @@ main.run()
 
 ---
 
-## 9. Built-in Test Harness (Recommended before moving real legs)
+## 9. Quick Start — Desktop GUI Viewer (sim_engine)
+
+The desktop viewer renders the simplified 2D physics engine in `sim_engine/`.
+
+From repo root:
+
+```bash
+python -m sim_engine
+```
+
+To launch the settings GUI (which saves a JSON settings file and then starts the viewer), run:
+
+```bash
+python -c "from sim_engine.viewer_desktop.app import ViewerApp; from sim_engine.viewer_desktop.settings_gui import launch_settings_gui; launch_settings_gui(lambda s: ViewerApp(s).root.mainloop())"
+```
+
+---
+
+## 10. Built-in Test Harness (Recommended before moving real legs)
 
 Run logic tests (no movement):
 
@@ -256,7 +278,17 @@ If hardware smoke tests are enabled in the test plan, start with tight clamps an
 
 ---
 
-## 10. Current Assumed Defaults (MVP)
+## 11. sim_engine Tests (Desktop)
+
+From repo root:
+
+```bash
+python -m unittest discover sim_engine/tests
+```
+
+---
+
+## 12. Current Assumed Defaults (MVP)
 
 ### Timing
 
@@ -288,7 +320,7 @@ If not overridden:
 
 ---
 
-## 11. Planning / Roadmap (Suggested order)
+## 13. Planning / Roadmap (Suggested order)
 
 ### Phase 0 — Bring-up safety
 
@@ -320,7 +352,7 @@ If not overridden:
 
 ---
 
-## 12. Known Issues / Sharp Edges
+## 14. Known Issues / Sharp Edges
 
 1. Some files may contain an extra first line with a single `\` (backslash), which breaks imports.
 
@@ -341,14 +373,17 @@ If not overridden:
 
 ---
 
-## 13. Internal Docs / References (in repo / project bundle)
+## 15. Internal Docs / References (in repo / project bundle)
 
 - `hexapod_control_logic_canvas.md` — control logic and planning notes
 - `hexapod_project_code_plan_build_validation_order.md` — build/validate order
 - `Developing a Tabletop Hexapod Walking Robot_ Software & Theory Guide.pdf` — theory guide
+- `docs/virtual_world_engine_desktop.md` — sim_engine architecture, API, solver math, and GUI details
+- `docs/demos_desktop.md` — sim_engine desktop scene catalog
+- `docs/CHANGELOG_sim_engine.md` — sim_engine changelog
 
 ---
 
-## 14. Safety note
+## 16. Safety note
 
 Start with tight servo limits, low speeds, and ideally lift the robot off the ground for first motion tests.
