@@ -126,6 +126,7 @@ class ViewerApp:
         self.sim_time = 0.0
         self.colors = OverlayColors()
         self.latest_contact_count = 0
+        self.latest_contacts: list = []
         self.replay: list[FrameSnapshot] | None = None
         self.replay_index = 0
         self.replay_time = 0.0
@@ -299,41 +300,36 @@ class ViewerApp:
         now = time.perf_counter()
         dt = now - self.last_time
         self.last_time = now
-        advanced = False
         if self.playback_enabled and self.replay:
             if not self.paused:
-                advanced = self._advance_playback(dt)
+                self._advance_playback(dt)
             elif self.step_requested:
-                advanced = self._advance_playback(dt, single_step=True)
+                self._advance_playback(dt, single_step=True)
                 self.step_requested = False
             else:
                 self.step_requested = False
         else:
             if not self.paused:
-                self.world.step(dt)
-                self.sim_time += dt
-                advanced = True
+                self._step_world(dt)
             elif self.step_requested:
-                self.world.step(self.settings.fixed_dt)
-                self.sim_time += self.settings.fixed_dt
+                self._step_world(self.settings.fixed_dt)
                 self.step_requested = False
-                advanced = True
             else:
                 self.step_requested = False
 
-        contacts = self._compute_contacts()
-        if advanced:
-            self._record_frame()
-        self._render(contacts)
+        if self.playback_enabled and self.replay:
+            self.latest_contact_count = self.replay_contact_count
+            self.latest_contacts = []
+        self._render()
         self.root.after(int(1000 / self.settings.fps), self._loop)
 
-    def _render(self, contacts: list) -> None:
+    def _render(self) -> None:
         self.canvas.delete("all")
         draw_ground(self.canvas, self.camera, self.settings.ground_z, self.camera.width)
         for body in self.world.bodies:
             draw_body(self.canvas, self.camera, body, self.colors)
         if self.settings.show_contacts:
-            draw_contacts(self.canvas, self.camera, contacts, self.colors)
+            draw_contacts(self.canvas, self.camera, self.latest_contacts, self.colors)
         draw_velocity_vectors(self.canvas, self.camera, self.world.bodies, self.colors)
         self.stats_label.configure(
             text=(
@@ -344,14 +340,6 @@ class ViewerApp:
             )
         )
 
-    def _compute_contacts(self) -> list:
-        if self.playback_enabled and self.replay:
-            self.latest_contact_count = self.replay_contact_count
-            return []
-        contacts = detect_contacts(self.world.bodies, self.settings.ground_z, self.world.ground_body)
-        self.latest_contact_count = len(contacts)
-        return contacts if self.settings.show_contacts else []
-
     def _record_frame(self) -> None:
         if self.recorder is None:
             return
@@ -360,6 +348,8 @@ class ViewerApp:
     def _apply_replay_frame(self, frame: FrameSnapshot) -> None:
         self.world.bodies = [body.to_body() for body in frame.bodies]
         self.replay_contact_count = frame.contact_count
+        self.latest_contact_count = frame.contact_count
+        self.latest_contacts = []
 
     def _advance_playback(self, dt: float, single_step: bool = False) -> bool:
         if not self.replay:
@@ -379,6 +369,21 @@ class ViewerApp:
         self._apply_replay_frame(frame)
         self.sim_time = frame.time
         return True
+
+    def _step_world(self, dt: float) -> bool:
+        advanced = False
+
+        def on_step(step_dt: float) -> None:
+            nonlocal advanced
+            advanced = True
+            self.sim_time += step_dt
+            contacts = detect_contacts(self.world.bodies, self.settings.ground_z, self.world.ground_body)
+            self.latest_contact_count = len(contacts)
+            self.latest_contacts = contacts if self.settings.show_contacts else []
+            self._record_frame()
+
+        self.world.step(dt, on_step=on_step)
+        return advanced
 
     def _on_close(self) -> None:
         if self.recorder and self.recorder.frames:
