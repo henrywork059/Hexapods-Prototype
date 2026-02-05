@@ -2,9 +2,10 @@ import tempfile
 from pathlib import Path
 
 import mujoco
+import numpy as np
 
-from mujoco_sim import generate_mjcf
 from mujoco_sim import bridge
+from mujoco_sim import generate_mjcf
 
 
 def test_model_loads_and_steps():
@@ -23,8 +24,10 @@ def test_model_loads_and_steps():
             for i in range(model.nu)
         ]
 
-        assert model.njnt >= 18
+        assert len(bridge.JOINT_ORDER) == 18
+        assert len(bridge.ACTUATOR_ORDER) == 18
         assert model.nu == 18
+        assert data.ctrl.shape[0] == 18
         for name in bridge.JOINT_ORDER:
             assert name in joint_names
         for name in bridge.ACTUATOR_ORDER:
@@ -33,3 +36,5 @@ def test_model_loads_and_steps():
         data.ctrl[:] = 0.0
         for _ in range(100):
             mujoco.mj_step(model, data)
+            assert np.all(np.isfinite(data.qpos))
+            assert np.all(np.isfinite(data.qvel))
