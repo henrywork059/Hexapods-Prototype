@@ -8,11 +8,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+import time
 
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 from sim_engine import config
+from sim_engine.demos.scenes import SCENES, SceneUpdater
 from sim_engine.engine.collision import detect_contacts
 from sim_engine.engine.materials import Material
 from sim_engine.engine.rigid_body import BodyType, RigidBody, Vec2
@@ -115,6 +117,7 @@ class ViewerApp:
         self.scene_name = self._resolve_scene_name(settings.scene)
         self.scene_combo.set(self.scene_name)
         self.scene_updater: SceneUpdater | None = None
+        self._build_scene(self.scene_name)
 
         self.camera = Camera2D(
             width=settings.window_width,
@@ -312,6 +315,17 @@ class ViewerApp:
                 self.step_requested = False
             else:
                 self.step_requested = False
+        if not self.paused:
+            if self.scene_updater is not None:
+                self.scene_updater(self.world, self.settings, self.sim_time, dt)
+            self.world.step(dt)
+            self.sim_time += dt
+        elif self.step_requested:
+            if self.scene_updater is not None:
+                self.scene_updater(self.world, self.settings, self.sim_time, self.settings.fixed_dt)
+            self.world.step(self.settings.fixed_dt)
+            self.sim_time += self.settings.fixed_dt
+            self.step_requested = False
         else:
             if not self.paused:
                 self._step_world(dt)
