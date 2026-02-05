@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from typing import List
+from typing import Callable, List
 
 from .collision import detect_contacts
 from .materials import Material
@@ -34,10 +34,19 @@ class World:
     def add_body(self, body: RigidBody) -> None:
         self.bodies.append(body)
 
-    def step(self, dt: float) -> None:
+    def step(
+        self,
+        dt: float,
+        on_step: Callable[[float], None] | None = None,
+        on_pre_step: Callable[[float], None] | None = None,
+    ) -> None:
         self.accumulator += dt
         while self.accumulator >= self.fixed_dt:
+            if on_pre_step is not None:
+                on_pre_step(self.fixed_dt)
             self._step_fixed(self.fixed_dt)
+            if on_step is not None:
+                on_step(self.fixed_dt)
             self.accumulator -= self.fixed_dt
 
     def _step_fixed(self, dt: float) -> None:

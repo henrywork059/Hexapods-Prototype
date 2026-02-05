@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import math
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
 import time
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 from sim_engine import config
 from sim_engine.demos.scenes import SCENES, SceneUpdater
@@ -14,11 +20,21 @@ from sim_engine.engine.materials import Material
 from sim_engine.engine.rigid_body import BodyType, RigidBody, Vec2
 from sim_engine.engine.shapes import Box, Circle
 from sim_engine.engine.world import World
+from sim_engine.replay.recorder import FrameSnapshot, ReplayRecorder, load_recording, save_recording
 from sim_engine.settings_schema import SimSettings, load_last_used
 
 from .camera import Camera2D
 from .input import InputState
 from .overlays import OverlayColors, draw_body, draw_contacts, draw_ground, draw_velocity_vectors
+
+
+SceneUpdater = Callable[[World, SimSettings, float, float], None]
+
+
+@dataclass
+class SceneSpec:
+    name: str
+    builder: Callable[[World, SimSettings], SceneUpdater | None]
 
 
 def _material_from_settings(settings: SimSettings) -> Material:
@@ -47,6 +63,44 @@ def _spawn_circle(world: World, settings: SimSettings, position: Vec2, radius: f
     )
     world.add_body(body)
 
+
+def _build_default_scene(world: World, settings: SimSettings) -> SceneUpdater | None:
+    _spawn_box(world, settings, Vec2(-120.0, 80.0), (60.0, 40.0), angle=math.radians(15))
+    _spawn_box(world, settings, Vec2(90.0, 140.0), (80.0, 30.0), angle=math.radians(-10))
+    _spawn_circle(world, settings, Vec2(0.0, 200.0), 25.0)
+    _spawn_circle(world, settings, Vec2(140.0, 260.0), 20.0)
+
+
+def _build_stack_scene(world: World, settings: SimSettings) -> SceneUpdater | None:
+    base_x = -80.0
+    for i in range(6):
+        _spawn_box(
+            world,
+            settings,
+            Vec2(base_x + i * 30.0, 40.0 + i * 35.0),
+            (50.0, 20.0),
+            angle=math.radians(2 * i),
+        )
+    for i in range(4):
+        _spawn_circle(world, settings, Vec2(80.0 + i * 35.0, 220.0 + i * 40.0), 18.0)
+
+
+def _build_drop_scene(world: World, settings: SimSettings) -> SceneUpdater | None:
+    for i in range(10):
+        x = world.rng.uniform(-200.0, 200.0)
+        z = world.rng.uniform(120.0, 320.0)
+        if i % 2 == 0:
+            _spawn_circle(world, settings, Vec2(x, z), world.rng.uniform(12.0, 24.0))
+        else:
+            size = world.rng.uniform(20.0, 50.0)
+            _spawn_box(world, settings, Vec2(x, z), (size, size * 0.6), angle=world.rng.uniform(-0.5, 0.5))
+
+
+SCENES = [
+    SceneSpec("default", _build_default_scene),
+    SceneSpec("stack", _build_stack_scene),
+    SceneSpec("drop", _build_drop_scene),
+]
 
 
 class ViewerApp:
@@ -78,8 +132,18 @@ class ViewerApp:
         self.last_time = time.perf_counter()
         self.sim_time = 0.0
         self.colors = OverlayColors()
+        self.latest_contact_count = 0
+        self.latest_contacts: list = []
+        self.replay: list[FrameSnapshot] | None = None
+        self.replay_index = 0
+        self.replay_time = 0.0
+        self.replay_contact_count = 0
+        self.recorder: ReplayRecorder | None = None
+        self.playback_enabled = settings.playback_enabled
 
+        self._configure_replay_or_recording()
         self._bind_events()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._loop()
 
     def _build_layout(self) -> None:
@@ -106,8 +170,10 @@ class ViewerApp:
         self.scene_combo.bind("<<ComboboxSelected>>", self._on_scene_selected)
         self.scene_combo.grid(row=0, column=4, padx=4)
 
-        ttk.Button(self.toolbar, text="Spawn Box", command=self._spawn_random_box).grid(row=0, column=5, padx=4)
-        ttk.Button(self.toolbar, text="Spawn Circle", command=self._spawn_random_circle).grid(row=0, column=6, padx=4)
+        self.spawn_box_button = ttk.Button(self.toolbar, text="Spawn Box", command=self._spawn_random_box)
+        self.spawn_box_button.grid(row=0, column=5, padx=4)
+        self.spawn_circle_button = ttk.Button(self.toolbar, text="Spawn Circle", command=self._spawn_random_circle)
+        self.spawn_circle_button.grid(row=0, column=6, padx=4)
 
         self.stats_label = ttk.Label(self.toolbar, text="")
         self.stats_label.grid(row=0, column=11, sticky="e")
@@ -126,6 +192,38 @@ class ViewerApp:
         self.root.bind("<space>", lambda _event: self._toggle_pause())
         self.root.bind("<KeyPress-s>", lambda _event: self._request_step())
         self.root.bind("<KeyPress-r>", lambda _event: self._reset_scene())
+
+    def _configure_replay_or_recording(self) -> None:
+        if self.playback_enabled:
+            try:
+                recording = load_recording(Path(self.settings.playback_path))
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                messagebox.showerror("Playback Load", f"Unable to load replay: {exc}")
+                self.playback_enabled = False
+            else:
+                self.replay = recording.frames
+                if not self.replay:
+                    messagebox.showerror("Playback Load", "Replay file contains no frames.")
+                    self.playback_enabled = False
+
+        if self.playback_enabled and self.replay:
+            self._apply_replay_frame(self.replay[0])
+            self.replay_index = 0
+            self.replay_time = self.replay[0].time
+            self.sim_time = self.replay[0].time
+            self.scene_combo.configure(state="disabled")
+            self.spawn_box_button.configure(state="disabled")
+            self.spawn_circle_button.configure(state="disabled")
+        else:
+            self._build_scene(self.scene_name)
+            if self.settings.recording_enabled:
+                self.recorder = ReplayRecorder(
+                    fps=self.settings.recording_fps,
+                    metadata={
+                        "scene": self.scene_name,
+                        "recording_fps": self.settings.recording_fps,
+                    },
+                )
 
     def _create_world(self, settings: SimSettings) -> World:
         world = World(
@@ -155,8 +253,16 @@ class ViewerApp:
 
     def _reset_scene(self) -> None:
         self.sim_time = 0.0
-        self.world = self._create_world(self.settings)
-        self._build_scene(self.scene_name)
+        if self.playback_enabled and self.replay:
+            self.replay_index = 0
+            self.replay_time = self.replay[0].time
+            self._apply_replay_frame(self.replay[0])
+            self.sim_time = self.replay[0].time
+        else:
+            self.world = self._create_world(self.settings)
+            self._build_scene(self.scene_name)
+            if self.recorder:
+                self.recorder.reset()
 
     def _on_scene_selected(self, _event: tk.Event) -> None:
         self.scene_name = self.scene_combo.get() or self.scene_name
@@ -201,6 +307,14 @@ class ViewerApp:
         now = time.perf_counter()
         dt = now - self.last_time
         self.last_time = now
+        if self.playback_enabled and self.replay:
+            if not self.paused:
+                self._advance_playback(dt)
+            elif self.step_requested:
+                self._advance_playback(dt, single_step=True)
+                self.step_requested = False
+            else:
+                self.step_requested = False
         if not self.paused:
             if self.scene_updater is not None:
                 self.scene_updater(self.world, self.settings, self.sim_time, dt)
@@ -213,7 +327,17 @@ class ViewerApp:
             self.sim_time += self.settings.fixed_dt
             self.step_requested = False
         else:
-            self.step_requested = False
+            if not self.paused:
+                self._step_world(dt)
+            elif self.step_requested:
+                self._step_world(self.settings.fixed_dt)
+                self.step_requested = False
+            else:
+                self.step_requested = False
+
+        if self.playback_enabled and self.replay:
+            self.latest_contact_count = self.replay_contact_count
+            self.latest_contacts = []
         self._render()
         self.root.after(int(1000 / self.settings.fps), self._loop)
 
@@ -222,12 +346,75 @@ class ViewerApp:
         draw_ground(self.canvas, self.camera, self.settings.ground_z, self.camera.width)
         for body in self.world.bodies:
             draw_body(self.canvas, self.camera, body, self.colors)
-        contacts = detect_contacts(self.world.bodies, self.settings.ground_z, self.world.ground_body)
-        draw_contacts(self.canvas, self.camera, contacts, self.colors)
+        if self.settings.show_contacts:
+            draw_contacts(self.canvas, self.camera, self.latest_contacts, self.colors)
         draw_velocity_vectors(self.canvas, self.camera, self.world.bodies, self.colors)
         self.stats_label.configure(
-            text=f"Bodies: {len(self.world.bodies)}  Time: {self.sim_time:0.2f}s  Zoom: {self.camera.zoom:0.2f}"
+            text=(
+                f"Bodies: {len(self.world.bodies)}  "
+                f"Contacts: {self.latest_contact_count}  "
+                f"Time: {self.sim_time:0.2f}s  "
+                f"Zoom: {self.camera.zoom:0.2f}"
+            )
         )
+
+    def _record_frame(self) -> None:
+        if self.recorder is None:
+            return
+        self.recorder.capture(self.world.bodies, self.sim_time, self.latest_contact_count)
+
+    def _apply_replay_frame(self, frame: FrameSnapshot) -> None:
+        self.world.bodies = [body.to_body() for body in frame.bodies]
+        self.replay_contact_count = frame.contact_count
+        self.latest_contact_count = frame.contact_count
+        self.latest_contacts = []
+
+    def _advance_playback(self, dt: float, single_step: bool = False) -> bool:
+        if not self.replay:
+            return False
+        if single_step:
+            if self.replay_index + 1 < len(self.replay):
+                self.replay_index += 1
+            frame = self.replay[self.replay_index]
+            self._apply_replay_frame(frame)
+            self.replay_time = frame.time
+            self.sim_time = frame.time
+            return True
+        self.replay_time += dt
+        while self.replay_index + 1 < len(self.replay) and self.replay[self.replay_index + 1].time <= self.replay_time:
+            self.replay_index += 1
+        frame = self.replay[self.replay_index]
+        self._apply_replay_frame(frame)
+        self.sim_time = frame.time
+        return True
+
+    def _step_world(self, dt: float) -> bool:
+        advanced = False
+
+        def on_pre_step(step_dt: float) -> None:
+            if self.scene_updater is not None:
+                self.scene_updater(self.world, self.settings, self.sim_time, step_dt)
+
+        def on_step(step_dt: float) -> None:
+            nonlocal advanced
+            advanced = True
+            self.sim_time += step_dt
+            contacts = detect_contacts(self.world.bodies, self.settings.ground_z, self.world.ground_body)
+            self.latest_contact_count = len(contacts)
+            self.latest_contacts = contacts if self.settings.show_contacts else []
+            self._record_frame()
+
+        self.world.step(dt, on_step=on_step, on_pre_step=on_pre_step)
+        return advanced
+
+    def _on_close(self) -> None:
+        if self.recorder and self.recorder.frames:
+            recording = self.recorder.build_recording()
+            try:
+                save_recording(recording, Path(self.settings.recording_path))
+            except OSError as exc:
+                messagebox.showerror("Recording Save", f"Unable to save recording: {exc}")
+        self.root.destroy()
 
 
 def main() -> None:
