@@ -44,6 +44,8 @@ class SettingsGUI:
         self.recording_enabled_var = tk.BooleanVar(value=config.DEFAULT_RECORDING_ENABLED)
         self.recording_path_var = tk.StringVar(value=str(config.DEFAULT_RECORDING_PATH))
         self.recording_fps_var = tk.StringVar(value=str(config.DEFAULT_RECORDING_FPS))
+        self.playback_enabled_var = tk.BooleanVar(value=config.DEFAULT_PLAYBACK_ENABLED)
+        self.playback_path_var = tk.StringVar(value=str(config.DEFAULT_PLAYBACK_PATH))
 
         self._build_layout()
         self._load_from_settings(load_last_used())
@@ -107,8 +109,18 @@ class SettingsGUI:
         ttk.Button(recording_frame, text="Browse", command=self._browse_recording_path).grid(row=1, column=2)
         self._add_row(recording_frame, 2, "Recording FPS", self.recording_fps_var)
 
+        playback_frame = ttk.LabelFrame(settings_frame, text="Playback", padding=8)
+        playback_frame.grid(row=5, column=0, sticky="ew", pady=(0, 10))
+        playback_frame.columnconfigure(1, weight=1)
+        ttk.Checkbutton(playback_frame, text="Enable playback", variable=self.playback_enabled_var).grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Label(playback_frame, text="Replay path").grid(row=1, column=0, sticky="w")
+        ttk.Entry(playback_frame, textvariable=self.playback_path_var).grid(row=1, column=1, sticky="ew", padx=6)
+        ttk.Button(playback_frame, text="Browse", command=self._browse_playback_path).grid(row=1, column=2)
+
         button_frame = ttk.Frame(settings_frame)
-        button_frame.grid(row=5, column=0, sticky="e")
+        button_frame.grid(row=6, column=0, sticky="e")
         ttk.Button(button_frame, text="Start Simulation", command=self._start_simulation).grid(row=0, column=0)
 
     @staticmethod
@@ -128,11 +140,19 @@ class SettingsGUI:
     def _browse_recording_path(self) -> None:
         path = filedialog.asksaveasfilename(
             title="Select recording path",
-            filetypes=[("Video files", "*.mp4"), ("All files", "*.*")],
-            defaultextension=".mp4",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            defaultextension=".json",
         )
         if path:
             self.recording_path_var.set(path)
+
+    def _browse_playback_path(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Select replay JSON",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if path:
+            self.playback_path_var.set(path)
 
     def _load_from_settings(self, settings: SimSettings) -> None:
         self.scene_var.set(settings.scene)
@@ -154,6 +174,8 @@ class SettingsGUI:
         self.recording_enabled_var.set(settings.recording_enabled)
         self.recording_path_var.set(settings.recording_path)
         self.recording_fps_var.set(str(settings.recording_fps))
+        self.playback_enabled_var.set(settings.playback_enabled)
+        self.playback_path_var.set(settings.playback_path)
 
     def _load_from_path(self) -> None:
         path = self._resolve_settings_path()
@@ -217,6 +239,8 @@ class SettingsGUI:
                 recording_enabled=self.recording_enabled_var.get(),
                 recording_path=self.recording_path_var.get().strip() or config.DEFAULT_RECORDING_PATH,
                 recording_fps=float(self.recording_fps_var.get()),
+                playback_enabled=self.playback_enabled_var.get(),
+                playback_path=self.playback_path_var.get().strip() or config.DEFAULT_PLAYBACK_PATH,
             )
         except ValueError as exc:
             messagebox.showerror("Invalid settings", f"Please check the input values.\n\n{exc}")

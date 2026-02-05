@@ -32,6 +32,8 @@ class SimSettings:
     recording_enabled: bool = config.DEFAULT_RECORDING_ENABLED
     recording_path: str = config.DEFAULT_RECORDING_PATH
     recording_fps: float = config.DEFAULT_RECORDING_FPS
+    playback_enabled: bool = config.DEFAULT_PLAYBACK_ENABLED
+    playback_path: str = config.DEFAULT_PLAYBACK_PATH
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -55,6 +57,8 @@ class SimSettings:
             "recording_enabled": self.recording_enabled,
             "recording_path": self.recording_path,
             "recording_fps": self.recording_fps,
+            "playback_enabled": self.playback_enabled,
+            "playback_path": self.playback_path,
         }
 
     @classmethod
@@ -80,6 +84,8 @@ class SimSettings:
             recording_enabled=bool(payload.get("recording_enabled", config.DEFAULT_RECORDING_ENABLED)),
             recording_path=str(payload.get("recording_path", config.DEFAULT_RECORDING_PATH)),
             recording_fps=float(payload.get("recording_fps", config.DEFAULT_RECORDING_FPS)),
+            playback_enabled=bool(payload.get("playback_enabled", config.DEFAULT_PLAYBACK_ENABLED)),
+            playback_path=str(payload.get("playback_path", config.DEFAULT_PLAYBACK_PATH)),
         )
 
 

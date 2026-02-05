@@ -23,7 +23,9 @@ DEFAULT_SHOW_AXES = True
 DEFAULT_SHOW_CONTACTS = False
 DEFAULT_SHOW_STATS = True
 DEFAULT_RECORDING_ENABLED = False
-DEFAULT_RECORDING_PATH = "simulation_capture.mp4"
+DEFAULT_RECORDING_PATH = "simulation_recording.json"
 DEFAULT_RECORDING_FPS = 60.0
+DEFAULT_PLAYBACK_ENABLED = False
+DEFAULT_PLAYBACK_PATH = "simulation_recording.json"
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".sim_engine_settings.json"
