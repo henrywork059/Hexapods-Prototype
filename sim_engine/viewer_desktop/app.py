@@ -26,10 +26,13 @@ from .input import InputState
 from .overlays import OverlayColors, draw_body, draw_contacts, draw_ground, draw_velocity_vectors
 
 
+SceneUpdater = Callable[[World, SimSettings, float, float], None]
+
+
 @dataclass
 class SceneSpec:
     name: str
-    builder: Callable[[World, SimSettings], None]
+    builder: Callable[[World, SimSettings], SceneUpdater | None]
 
 
 def _material_from_settings(settings: SimSettings) -> Material:
@@ -59,14 +62,14 @@ def _spawn_circle(world: World, settings: SimSettings, position: Vec2, radius: f
     world.add_body(body)
 
 
-def _build_default_scene(world: World, settings: SimSettings) -> None:
+def _build_default_scene(world: World, settings: SimSettings) -> SceneUpdater | None:
     _spawn_box(world, settings, Vec2(-120.0, 80.0), (60.0, 40.0), angle=math.radians(15))
     _spawn_box(world, settings, Vec2(90.0, 140.0), (80.0, 30.0), angle=math.radians(-10))
     _spawn_circle(world, settings, Vec2(0.0, 200.0), 25.0)
     _spawn_circle(world, settings, Vec2(140.0, 260.0), 20.0)
 
 
-def _build_stack_scene(world: World, settings: SimSettings) -> None:
+def _build_stack_scene(world: World, settings: SimSettings) -> SceneUpdater | None:
     base_x = -80.0
     for i in range(6):
         _spawn_box(
@@ -80,7 +83,7 @@ def _build_stack_scene(world: World, settings: SimSettings) -> None:
         _spawn_circle(world, settings, Vec2(80.0 + i * 35.0, 220.0 + i * 40.0), 18.0)
 
 
-def _build_drop_scene(world: World, settings: SimSettings) -> None:
+def _build_drop_scene(world: World, settings: SimSettings) -> SceneUpdater | None:
     for i in range(10):
         x = world.rng.uniform(-200.0, 200.0)
         z = world.rng.uniform(120.0, 320.0)
@@ -111,6 +114,7 @@ class ViewerApp:
         self.world = self._create_world(settings)
         self.scene_name = self._resolve_scene_name(settings.scene)
         self.scene_combo.set(self.scene_name)
+        self.scene_updater: SceneUpdater | None = None
 
         self.camera = Camera2D(
             width=settings.window_width,
@@ -231,7 +235,7 @@ class ViewerApp:
     def _build_scene(self, scene_name: str) -> None:
         self.world.bodies.clear()
         scene = next((scene for scene in SCENES if scene.name == scene_name), SCENES[0])
-        scene.builder(self.world, self.settings)
+        self.scene_updater = scene.builder(self.world, self.settings)
 
     @staticmethod
     def _resolve_scene_name(scene_name: str) -> str:
@@ -373,6 +377,10 @@ class ViewerApp:
     def _step_world(self, dt: float) -> bool:
         advanced = False
 
+        def on_pre_step(step_dt: float) -> None:
+            if self.scene_updater is not None:
+                self.scene_updater(self.world, self.settings, self.sim_time, step_dt)
+
         def on_step(step_dt: float) -> None:
             nonlocal advanced
             advanced = True
@@ -382,7 +390,7 @@ class ViewerApp:
             self.latest_contacts = contacts if self.settings.show_contacts else []
             self._record_frame()
 
-        self.world.step(dt, on_step=on_step)
+        self.world.step(dt, on_step=on_step, on_pre_step=on_pre_step)
         return advanced
 
     def _on_close(self) -> None:

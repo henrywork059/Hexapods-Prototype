@@ -34,9 +34,16 @@ class World:
     def add_body(self, body: RigidBody) -> None:
         self.bodies.append(body)
 
-    def step(self, dt: float, on_step: Callable[[float], None] | None = None) -> None:
+    def step(
+        self,
+        dt: float,
+        on_step: Callable[[float], None] | None = None,
+        on_pre_step: Callable[[float], None] | None = None,
+    ) -> None:
         self.accumulator += dt
         while self.accumulator >= self.fixed_dt:
+            if on_pre_step is not None:
+                on_pre_step(self.fixed_dt)
             self._step_fixed(self.fixed_dt)
             if on_step is not None:
                 on_step(self.fixed_dt)
