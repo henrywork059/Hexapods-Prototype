@@ -1,16 +1,12 @@
-"""3D visual viewer for the *Python* simulation package.
-
-This is a lightweight kinematic viewer (no physics). It mirrors the same
-control loop used by `simulation/sim_main.py`, but draws the body + 6 legs
-in an interactive Matplotlib 3D window.
+"""3D visual viewer for the Python simulation.
 
 Run from repo root:
   python -m simulation.viewer --duration 0 --speed-v 40 --speed-wz 0.0
 
-Free view controls (Matplotlib 3D defaults):
+Controls (Matplotlib 3D defaults):
   - Left-drag: rotate
-  - Right-drag / middle-drag: pan (depends on backend)
   - Scroll: zoom
+  - Right/Middle drag: pan (depends on backend)
 """
 
 from __future__ import annotations
@@ -23,8 +19,36 @@ from typing import List, Sequence, Tuple
 Vector = Tuple[float, float, float]
 
 
+def _ensure_gui_backend(preferred: str | None = None) -> None:
+    """
+    If matplotlib is using a non-GUI backend (like Agg), force a GUI backend
+    so a real window opens on Windows/macOS/Linux.
+    Must be called BEFORE importing matplotlib.pyplot.
+    """
+    import matplotlib
+
+    if preferred:
+        try:
+            matplotlib.use(preferred, force=True)
+            return
+        except Exception:
+            pass
+
+    backend = matplotlib.get_backend().lower()
+    if "agg" not in backend:
+        return
+
+    # Try common GUI backends in a safe order.
+    for cand in ("TkAgg", "QtAgg", "Qt5Agg"):
+        try:
+            matplotlib.use(cand, force=True)
+            return
+        except Exception:
+            continue
+    # If none worked, matplotlib will stay on Agg (no window).
+
+
 def _polyline_from_segments(segments: Sequence[Tuple[Vector, Vector]]) -> List[Vector]:
-    """Convert [(p0,q0),(p1,q1),...] into [p0,q0,q1,...]."""
     if not segments:
         return []
     pts: List[Vector] = [segments[0][0]]
@@ -34,7 +58,6 @@ def _polyline_from_segments(segments: Sequence[Tuple[Vector, Vector]]) -> List[V
 
 
 def _make_body_outline_B(radius: float, z: float = 0.0, n: int = 6) -> List[Vector]:
-    """Simple regular polygon outline for the chassis in body frame."""
     pts: List[Vector] = []
     n = max(3, int(n))
     for k in range(n + 1):
@@ -43,18 +66,19 @@ def _make_body_outline_B(radius: float, z: float = 0.0, n: int = 6) -> List[Vect
     return pts
 
 
-def run(duration: float, speed_v: float, speed_wz: float, dt: float, fps: float, steps_per_frame: int):
-    """Run the visual viewer."""
+def run(duration: float, speed_v: float, speed_wz: float, dt: float, fps: float, steps_per_frame: int, backend: str):
+    _ensure_gui_backend(backend if backend else None)
 
-    # Import *inside* run so that users without matplotlib can still import the package.
+    import matplotlib
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation
 
-    from . import config, frames, ik
-    from .gait_tripod import TripodGait
-    from .robot_model import RobotModel
-    from .world import World
+    from simulation import config, frames, ik
+    from simulation.gait_tripod import TripodGait
+    from simulation.robot_model import RobotModel
+    from simulation.world import World
 
+    # ---- Sim state ----
     gait = TripodGait()
     gait.reset_pose(send=False)
     gait.set_command(speed_v, 0.0, speed_wz)
@@ -62,11 +86,10 @@ def run(duration: float, speed_v: float, speed_wz: float, dt: float, fps: float,
     robot = RobotModel()
     world = World(body_pos=(0.0, 0.0, abs(config.STANCE_Z0) + 10.0))
 
-    # ---- Matplotlib scene ----
+    # ---- Figure ----
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
 
-    # Pick a reasonable viewing radius.
     view_r = float(
         getattr(
             config,
@@ -133,13 +156,10 @@ def run(duration: float, speed_v: float, speed_wz: float, dt: float, fps: float,
             plt.close(fig)
             return []
 
-        # Advance simulation
-        steps = max(1, int(steps_per_frame))
         metrics = None
-        for _ in range(steps):
+        for _ in range(max(1, int(steps_per_frame))):
             metrics = _sim_step(float(dt))
 
-        # Update leg geometry
         segs_by_leg = robot.segments_by_leg()
         for i, segs in enumerate(segs_by_leg):
             pts_B = _polyline_from_segments(segs)
@@ -150,7 +170,6 @@ def run(duration: float, speed_v: float, speed_wz: float, dt: float, fps: float,
             leg_lines[i].set_data(xs, ys)
             leg_lines[i].set_3d_properties(zs)
 
-        # Update feet
         feet_B = robot.foot_positions_body()
         feet_W = [frames.body_point_to_world(p, world.body_pos, world.body_rpy) for p in feet_B]
         fx = [p[0] for p in feet_W]
@@ -162,18 +181,27 @@ def run(duration: float, speed_v: float, speed_wz: float, dt: float, fps: float,
             metrics = world.evaluate(robot)
 
         ax.set_title(
-            "min_ground={:.1f}mm  min_link={:.1f}mm  penetrations={:.0f}".format(
-                metrics["min_ground_clearance"],
-                metrics["min_link_distance"],
-                metrics["ground_penetrations"],
-            )
+            f"backend={matplotlib.get_backend()}  "
+            f"min_ground={metrics['min_ground_clearance']:.1f}mm  "
+            f"min_link={metrics['min_link_distance']:.1f}mm  "
+            f"penetrations={metrics['ground_penetrations']:.0f}"
         )
 
         return [ground_line, body_line, hip_scatter, foot_scatter, *leg_lines]
 
     interval_ms = int(1000.0 / max(1.0, float(fps)))
-    FuncAnimation(fig, _update, interval=interval_ms, blit=False)
-    plt.show()
+
+    # IMPORTANT: keep a reference to the animation object
+    anim = FuncAnimation(
+        fig,
+        _update,
+        interval=interval_ms,
+        blit=False,
+        cache_frame_data=False,  # avoids unbounded caching warning
+    )
+
+    plt.show()  # should block and keep window alive
+    _ = anim  # keep reference explicit
 
 
 def main():
@@ -183,15 +211,16 @@ def main():
     parser.add_argument("--speed-wz", type=float, default=0.0, help="yaw rate rad/s")
     parser.add_argument("--dt", type=float, default=0.02, help="simulation timestep seconds")
     parser.add_argument("--fps", type=float, default=30.0, help="viewer refresh rate")
+    parser.add_argument("--steps-per-frame", type=int, default=1, help="sim steps per rendered frame")
     parser.add_argument(
-        "--steps-per-frame",
-        type=int,
-        default=1,
-        help="how many sim steps per rendered frame (increase if motion looks too slow)",
+        "--backend",
+        type=str,
+        default="",
+        help="force matplotlib backend (e.g. TkAgg, QtAgg). Leave empty for auto.",
     )
     args = parser.parse_args()
 
-    run(args.duration, args.speed_v, args.speed_wz, args.dt, args.fps, args.steps_per_frame)
+    run(args.duration, args.speed_v, args.speed_wz, args.dt, args.fps, args.steps_per_frame, args.backend)
 
 
 if __name__ == "__main__":
