@@ -38,7 +38,7 @@ def circle_ground(circle_body: RigidBody, shape: Circle, ground_z: float, ground
     if depth <= 0.0:
         return []
     point = Vec2(circle_body.position.x, ground_z)
-    return [Contact(circle_body, ground_body, point, Vec2(0.0, 1.0), depth)]
+    return [Contact(circle_body, ground_body, point, Vec2(0.0, -1.0), depth)]
 
 
 def box_ground(box_body: RigidBody, shape: Box, ground_z: float, ground_body: RigidBody) -> List[Contact]:
@@ -48,7 +48,7 @@ def box_ground(box_body: RigidBody, shape: Box, ground_z: float, ground_body: Ri
     if depth <= 0.0:
         return []
     point = Vec2(min_vertex.x, ground_z)
-    return [Contact(box_body, ground_body, point, Vec2(0.0, 1.0), depth)]
+    return [Contact(box_body, ground_body, point, Vec2(0.0, -1.0), depth)]
 
 
 def circle_circle(body_a: RigidBody, shape_a: Circle, body_b: RigidBody, shape_b: Circle) -> List[Contact]:
