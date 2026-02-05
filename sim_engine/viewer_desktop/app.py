@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import math
 import time
-from dataclasses import dataclass
-from typing import Callable
 
 import tkinter as tk
 from tkinter import ttk
 
 from sim_engine import config
+from sim_engine.demos.scenes import SCENES, SceneUpdater
 from sim_engine.engine.collision import detect_contacts
 from sim_engine.engine.materials import Material
 from sim_engine.engine.rigid_body import BodyType, RigidBody, Vec2
@@ -21,12 +19,6 @@ from sim_engine.settings_schema import SimSettings, load_last_used
 from .camera import Camera2D
 from .input import InputState
 from .overlays import OverlayColors, draw_body, draw_contacts, draw_ground, draw_velocity_vectors
-
-
-@dataclass
-class SceneSpec:
-    name: str
-    builder: Callable[[World, SimSettings], None]
 
 
 def _material_from_settings(settings: SimSettings) -> Material:
@@ -56,44 +48,6 @@ def _spawn_circle(world: World, settings: SimSettings, position: Vec2, radius: f
     world.add_body(body)
 
 
-def _build_default_scene(world: World, settings: SimSettings) -> None:
-    _spawn_box(world, settings, Vec2(-120.0, 80.0), (60.0, 40.0), angle=math.radians(15))
-    _spawn_box(world, settings, Vec2(90.0, 140.0), (80.0, 30.0), angle=math.radians(-10))
-    _spawn_circle(world, settings, Vec2(0.0, 200.0), 25.0)
-    _spawn_circle(world, settings, Vec2(140.0, 260.0), 20.0)
-
-
-def _build_stack_scene(world: World, settings: SimSettings) -> None:
-    base_x = -80.0
-    for i in range(6):
-        _spawn_box(
-            world,
-            settings,
-            Vec2(base_x + i * 30.0, 40.0 + i * 35.0),
-            (50.0, 20.0),
-            angle=math.radians(2 * i),
-        )
-    for i in range(4):
-        _spawn_circle(world, settings, Vec2(80.0 + i * 35.0, 220.0 + i * 40.0), 18.0)
-
-
-def _build_drop_scene(world: World, settings: SimSettings) -> None:
-    for i in range(10):
-        x = world.rng.uniform(-200.0, 200.0)
-        z = world.rng.uniform(120.0, 320.0)
-        if i % 2 == 0:
-            _spawn_circle(world, settings, Vec2(x, z), world.rng.uniform(12.0, 24.0))
-        else:
-            size = world.rng.uniform(20.0, 50.0)
-            _spawn_box(world, settings, Vec2(x, z), (size, size * 0.6), angle=world.rng.uniform(-0.5, 0.5))
-
-
-SCENES = [
-    SceneSpec("default", _build_default_scene),
-    SceneSpec("stack", _build_stack_scene),
-    SceneSpec("drop", _build_drop_scene),
-]
-
 
 class ViewerApp:
     def __init__(self, settings: SimSettings) -> None:
@@ -108,6 +62,7 @@ class ViewerApp:
         self.world = self._create_world(settings)
         self.scene_name = self._resolve_scene_name(settings.scene)
         self.scene_combo.set(self.scene_name)
+        self.scene_updater: SceneUpdater | None = None
         self._build_scene(self.scene_name)
 
         self.camera = Camera2D(
@@ -185,7 +140,7 @@ class ViewerApp:
     def _build_scene(self, scene_name: str) -> None:
         self.world.bodies.clear()
         scene = next((scene for scene in SCENES if scene.name == scene_name), SCENES[0])
-        scene.builder(self.world, self.settings)
+        self.scene_updater = scene.builder(self.world, self.settings)
 
     @staticmethod
     def _resolve_scene_name(scene_name: str) -> str:
@@ -247,9 +202,13 @@ class ViewerApp:
         dt = now - self.last_time
         self.last_time = now
         if not self.paused:
+            if self.scene_updater is not None:
+                self.scene_updater(self.world, self.settings, self.sim_time, dt)
             self.world.step(dt)
             self.sim_time += dt
         elif self.step_requested:
+            if self.scene_updater is not None:
+                self.scene_updater(self.world, self.settings, self.sim_time, self.settings.fixed_dt)
             self.world.step(self.settings.fixed_dt)
             self.sim_time += self.settings.fixed_dt
             self.step_requested = False

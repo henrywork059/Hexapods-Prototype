@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from sim_engine import config
+from sim_engine.demos.scenes import SCENES
 from sim_engine.settings_schema import SimSettings, load_last_used, save_last_used
 
 
@@ -24,6 +25,7 @@ class SettingsGUI:
         self.settings_path_var = tk.StringVar(value=str(config.DEFAULT_SETTINGS_PATH))
 
         self.scene_var = tk.StringVar(value=config.DEFAULT_SCENE)
+        self.scene_options = [scene.name for scene in SCENES]
         self.fixed_dt_var = tk.StringVar(value=str(config.DEFAULT_FIXED_DT))
         self.fps_var = tk.StringVar(value=str(config.DEFAULT_FPS))
         self.gravity_x_var = tk.StringVar(value=str(config.DEFAULT_GRAVITY_X))
@@ -68,7 +70,14 @@ class SettingsGUI:
         sim_frame = ttk.LabelFrame(settings_frame, text="Simulation", padding=8)
         sim_frame.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         sim_frame.columnconfigure(1, weight=1)
-        self._add_row(sim_frame, 0, "Scene", self.scene_var)
+        ttk.Label(sim_frame, text="Scene").grid(row=0, column=0, sticky="w", pady=2)
+        self.scene_combo = ttk.Combobox(
+            sim_frame,
+            textvariable=self.scene_var,
+            values=self.scene_options,
+            state="readonly",
+        )
+        self.scene_combo.grid(row=0, column=1, sticky="ew", pady=2)
         self._add_row(sim_frame, 1, "Fixed dt", self.fixed_dt_var)
         self._add_row(sim_frame, 2, "FPS", self.fps_var)
         self._add_row(sim_frame, 3, "Gravity X", self.gravity_x_var)
@@ -135,7 +144,10 @@ class SettingsGUI:
             self.recording_path_var.set(path)
 
     def _load_from_settings(self, settings: SimSettings) -> None:
-        self.scene_var.set(settings.scene)
+        if settings.scene in self.scene_options:
+            self.scene_var.set(settings.scene)
+        else:
+            self.scene_var.set(self.scene_options[0])
         self.fixed_dt_var.set(str(settings.fixed_dt))
         self.fps_var.set(str(settings.fps))
         self.gravity_x_var.set(str(settings.gravity_x))
