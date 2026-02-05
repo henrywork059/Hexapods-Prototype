@@ -252,6 +252,12 @@ main.run()
 
 Use: `mujoco_sim/`
 
+Install dependencies (PC):
+
+```bash
+pip install -r requirements.txt
+```
+
 ```bash
 python -m mujoco_sim.generate_mjcf
 python -m mujoco_sim.run_mujoco --duration 10 --vx 20 --vy 0 --wz 0
