@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import time
 from pathlib import Path
 
@@ -19,7 +20,12 @@ from . import logging_utils
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the MuJoCo hexapod simulation.")
-    parser.add_argument("--duration", type=float, default=10.0, help="Simulation duration in seconds.")
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=0.0,
+        help="Simulation duration in seconds. Use <= 0 to run until you close the viewer.",
+    )
     parser.add_argument("--dt", type=float, default=float(sim_config.DT), help="Simulation timestep in seconds.")
     parser.add_argument("--vx", type=float, default=0.0, help="Body forward velocity (mm/s).")
     parser.add_argument("--vy", type=float, default=0.0, help="Body lateral velocity (mm/s).")
@@ -29,6 +35,16 @@ def _parse_args() -> argparse.Namespace:
     parser.set_defaults(real_time=True)
     parser.add_argument("--headless", action="store_true", help="Run without the viewer.")
     parser.add_argument("--log", type=str, default=None, help="CSV log path.")
+    parser.add_argument(
+        "--mode",
+        choices=("single-leg", "tripod"),
+        default="single-leg",
+        help="Control mode: simplified single-leg gait or full tripod gait.",
+    )
+    parser.add_argument("--swing-leg", type=int, default=0, help="Leg index to cycle in single-leg mode (0-5).")
+    parser.add_argument("--cycle-time", type=float, default=1.2, help="Single-leg gait cycle period in seconds.")
+    parser.add_argument("--step-length", type=float, default=30.0, help="Single-leg forward/back sweep in mm.")
+    parser.add_argument("--step-height", type=float, default=30.0, help="Single-leg lift height in mm.")
     return parser.parse_args()
 
 
@@ -128,6 +144,8 @@ def _run_loop(
     logger: logging_utils.MjLogger | None = None,
 ) -> None:
     sim_dt = float(model.opt.timestep)
+    neutral_targets = list(gait.p_H)
+    swing_leg = max(0, min(5, int(args.swing_leg)))
     start = time.time()
     step_count = 0
     max_steps = int(args.duration / sim_dt) if args.duration > 0 else None
@@ -137,7 +155,17 @@ def _run_loop(
             break
 
         if not state["paused"]:
-            foot_targets = gait.update(dt=sim_dt, send=False)
+            if args.mode == "single-leg":
+                foot_targets = _single_leg_targets(
+                    t=step_count * sim_dt,
+                    neutral=neutral_targets,
+                    leg_index=swing_leg,
+                    cycle_time=max(sim_dt, float(args.cycle_time)),
+                    step_length=float(args.step_length),
+                    step_height=float(args.step_height),
+                )
+            else:
+                foot_targets = gait.update(dt=sim_dt, send=False)
             ik_solutions = [ik.ik_xyz(*target) for target in foot_targets]
             ctrl = bridge.map_ik_to_ctrl(ik_solutions, degrees=True)
             data.ctrl[:] = ctrl
@@ -155,6 +183,33 @@ def _run_loop(
             sleep_time = target - elapsed
             if sleep_time > 0:
                 time.sleep(sleep_time)
+
+
+def _single_leg_targets(
+    t: float,
+    neutral: list[tuple[float, float, float]],
+    leg_index: int,
+    cycle_time: float,
+    step_length: float,
+    step_height: float,
+) -> list[tuple[float, float, float]]:
+    """Generate a simplified gait where one leg cycles while all others stay planted."""
+    targets = [tuple(p) for p in neutral]
+
+    phase = (t / cycle_time) % 1.0
+    x0, y0, z0 = targets[leg_index]
+
+    if phase < 0.5:
+        u = phase / 0.5
+        x = x0 + (u - 0.5) * step_length
+        z = z0 + math.sin(math.pi * u) * step_height
+    else:
+        u = (phase - 0.5) / 0.5
+        x = x0 + (0.5 - u) * step_length
+        z = z0
+
+    targets[leg_index] = (x, y0, z)
+    return targets
 
 
 if __name__ == "__main__":
