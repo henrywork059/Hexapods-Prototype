@@ -31,7 +31,7 @@ def _vec_to_str(vec: Iterable[float]) -> str:
     return " ".join(f"{v:.6f}" for v in vec)
 
 
-def build_mjcf_xml() -> ET.Element:
+def build_mjcf_xml(timestep: float = 0.01) -> ET.Element:
     cfg = _load_config()
 
     coxa_l = float(_get(cfg, "COXA_L", 34.5)) * 0.001
@@ -66,7 +66,7 @@ def build_mjcf_xml() -> ET.Element:
 
     root = ET.Element("mujoco", model="hexapod")
     compiler = ET.SubElement(root, "compiler", angle="radian", coordinate="local")
-    ET.SubElement(root, "option", timestep="0.01", gravity="0 0 -9.81")
+    ET.SubElement(root, "option", timestep=f"{float(timestep):.9g}", gravity="0 0 -9.81")
 
     default = ET.SubElement(root, "default")
     ET.SubElement(default, "geom", type="capsule", size="0.01", density="500", rgba="0.6 0.6 0.6 1")
@@ -190,10 +190,10 @@ def build_mjcf_xml() -> ET.Element:
     return root
 
 
-def write_mjcf(path: str | Path) -> Path:
+def write_mjcf(path: str | Path, timestep: float = 0.01) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    root = build_mjcf_xml()
+    root = build_mjcf_xml(timestep=timestep)
     tree = ET.ElementTree(root)
     tree.write(path, encoding="utf-8", xml_declaration=True)
     return path

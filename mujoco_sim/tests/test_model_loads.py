@@ -38,3 +38,14 @@ def test_model_loads_and_steps():
             mujoco.mj_step(model, data)
             assert np.all(np.isfinite(data.qpos))
             assert np.all(np.isfinite(data.qvel))
+
+
+def test_generated_model_uses_requested_timestep():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        model_path = Path(tmpdir) / "hexapod.xml"
+        requested_dt = 0.003
+        generate_mjcf.write_mjcf(model_path, timestep=requested_dt)
+
+        model = mujoco.MjModel.from_xml_path(str(model_path))
+
+        assert model.opt.timestep == requested_dt
