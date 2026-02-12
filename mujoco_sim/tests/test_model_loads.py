@@ -6,6 +6,8 @@ import numpy as np
 
 from mujoco_sim import bridge
 from mujoco_sim import generate_mjcf
+from simulation import ik
+from simulation.gait_tripod import TripodGait
 
 
 def test_model_loads_and_steps():
@@ -49,3 +51,41 @@ def test_generated_model_uses_requested_timestep():
         model = mujoco.MjModel.from_xml_path(str(model_path))
 
         assert model.opt.timestep == requested_dt
+
+
+def test_neutral_tripod_targets_are_kinematically_consistent():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        model_path = Path(tmpdir) / "hexapod.xml"
+        generate_mjcf.write_mjcf(model_path)
+
+        model = mujoco.MjModel.from_xml_path(str(model_path))
+        data = mujoco.MjData(model)
+
+        gait = TripodGait()
+        gait.reset_pose(send=False)
+        ik_solutions = [ik.ik_xyz(*target_hip) for target_hip in gait.p_H]
+
+        ctrl = bridge.map_ik_to_ctrl(ik_solutions)
+        data.ctrl[:] = ctrl
+
+        expected_femur_signs = [np.sign(sol["femur"]) for sol in ik_solutions]
+        expected_tibia_signs = [np.sign(sol["tibia"]) for sol in ik_solutions]
+        commanded_femur_signs = [np.sign(ctrl[3 * leg + 1]) for leg in range(6)]
+        commanded_tibia_signs = [np.sign(ctrl[3 * leg + 2]) for leg in range(6)]
+
+        assert all(sign <= 0 for sign in expected_femur_signs)
+        assert all(sign < 0 for sign in expected_tibia_signs)
+        assert commanded_femur_signs == expected_femur_signs
+        assert commanded_tibia_signs == expected_tibia_signs
+
+        for _ in range(20):
+            mujoco.mj_step(model, data)
+
+        torso_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "torso")
+        torso_z = float(data.xpos[torso_id][2])
+        rel_foot_z = []
+        for leg in range(6):
+            site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, f"foot_leg{leg}")
+            rel_foot_z.append(float(data.site_xpos[site_id][2] - torso_z))
+
+        assert all(z < -1e-3 for z in rel_foot_z)
