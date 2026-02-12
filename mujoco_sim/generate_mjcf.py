@@ -148,7 +148,9 @@ def build_mjcf_xml(timestep: float = 0.01) -> ET.Element:
             "joint",
             name=f"leg{i}_femur",
             type="hinge",
-            axis="0 1 0",
+            # Match simulation/ik.py convention: z negative is down, so positive
+            # femur/tibia IK angles should move the links downward in MuJoCo too.
+            axis="0 -1 0",
             range=_vec_to_str((_deg_to_rad(-90.0), _deg_to_rad(90.0))),
         )
         ET.SubElement(
@@ -170,7 +172,9 @@ def build_mjcf_xml(timestep: float = 0.01) -> ET.Element:
             "joint",
             name=f"leg{i}_tibia",
             type="hinge",
-            axis="0 1 0",
+            # Keep range limits aligned with simulation/ik.py limits; only hinge
+            # axis is flipped to align joint sign semantics across sim stacks.
+            axis="0 -1 0",
             range=_vec_to_str((_deg_to_rad(-140.0), _deg_to_rad(0.0))),
         )
         ET.SubElement(
