@@ -21,7 +21,17 @@ This writes `mujoco_sim/models/hexapod.xml` using geometry from `simulation/conf
 ## Run with Viewer
 
 ```bash
-python -m mujoco_sim.run_mujoco --duration 10 --vx 20 --vy 0 --wz 0
+python -m mujoco_sim.run_mujoco
+```
+
+By default, the runner now starts in **single-leg** mode and runs in real-time until you quit the viewer.
+Only one leg cycles through swing/stance while the other five stay planted.
+
+Useful options:
+
+```bash
+python -m mujoco_sim.run_mujoco --mode single-leg --swing-leg 0 --cycle-time 1.2 --step-length 30 --step-height 30
+python -m mujoco_sim.run_mujoco --mode tripod --duration 10 --vx 20 --vy 0 --wz 0
 ```
 
 Controls in the viewer:
