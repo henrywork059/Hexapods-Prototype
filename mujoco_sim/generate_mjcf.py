@@ -66,12 +66,30 @@ def build_mjcf_xml() -> ET.Element:
 
     root = ET.Element("mujoco", model="hexapod")
     compiler = ET.SubElement(root, "compiler", angle="radian", coordinate="local")
-    ET.SubElement(root, "option", timestep="0.01", gravity="0 0 -9.81")
+    ET.SubElement(
+        root,
+        "option",
+        timestep="0.003",
+        gravity="0 0 -9.81",
+        integrator="implicitfast",
+        iterations="80",
+        ls_iterations="20",
+    )
 
     default = ET.SubElement(root, "default")
-    ET.SubElement(default, "geom", type="capsule", size="0.01", density="500", rgba="0.6 0.6 0.6 1")
-    ET.SubElement(default, "joint", damping="1", limited="true")
-    ET.SubElement(default, "position", kp="40", kv="5")
+    ET.SubElement(
+        default,
+        "geom",
+        type="capsule",
+        size="0.01",
+        density="500",
+        rgba="0.6 0.6 0.6 1",
+        friction="1.0 0.02 0.002",
+        solref="0.004 1",
+        solimp="0.90 0.95 0.001",
+    )
+    ET.SubElement(default, "joint", damping="2.5", armature="0.01", limited="true")
+    ET.SubElement(default, "position", kp="20", kv="9")
 
     worldbody = ET.SubElement(root, "worldbody")
     ET.SubElement(
@@ -182,10 +200,15 @@ def build_mjcf_xml() -> ET.Element:
                 "position",
                 name=f"act_{joint_name}",
                 joint=joint_name,
-                kp="40",
-                kv="5",
+                kp="20",
+                kv="9",
                 ctrlrange=_vec_to_str((_deg_to_rad(lo), _deg_to_rad(hi))),
             )
+
+    contact = ET.SubElement(root, "contact")
+    for i in range(6):
+        ET.SubElement(contact, "exclude", name=f"leg{i}_coxa_femur", body1=f"leg{i}_hip", body2=f"leg{i}_femur_body")
+        ET.SubElement(contact, "exclude", name=f"leg{i}_femur_tibia", body1=f"leg{i}_femur_body", body2=f"leg{i}_tibia_body")
 
     return root
 
