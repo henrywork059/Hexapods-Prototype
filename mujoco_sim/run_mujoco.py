@@ -32,11 +32,16 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _build_model() -> tuple[mujoco.MjModel, mujoco.MjData]:
+def _build_model(dt: float) -> tuple[mujoco.MjModel, mujoco.MjData]:
     model_path = Path(__file__).resolve().parent / "models" / "hexapod.xml"
     if not model_path.exists():
-        generate_mjcf.write_mjcf(model_path)
+        generate_mjcf.write_mjcf(model_path, timestep=dt)
+    else:
+        existing_model = mujoco.MjModel.from_xml_path(str(model_path))
+        if abs(existing_model.opt.timestep - dt) > 1e-12:
+            generate_mjcf.write_mjcf(model_path, timestep=dt)
     model = mujoco.MjModel.from_xml_path(str(model_path))
+    model.opt.timestep = dt
     data = mujoco.MjData(model)
     return model, data
 
@@ -72,8 +77,8 @@ def _set_neutral_pose(
 def run() -> None:
     args = _parse_args()
 
-    model, data = _build_model()
     dt = float(args.dt)
+    model, data = _build_model(dt)
 
     gait = gait_tripod.TripodGait()
     gait.set_command(args.vx, args.vy, args.wz)
@@ -98,7 +103,7 @@ def run() -> None:
     )
 
     if args.headless:
-        _run_loop(model, data, gait, dt, args, state, logger=logger_ctx)
+        _run_loop(model, data, gait, args, state, logger=logger_ctx)
         if logger_ctx:
             logger_ctx.close()
         return
@@ -107,7 +112,7 @@ def run() -> None:
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         viewer.key_callback = key_callback
-        _run_loop(model, data, gait, dt, args, state, viewer=viewer, logger=logger_ctx)
+        _run_loop(model, data, gait, args, state, viewer=viewer, logger=logger_ctx)
 
     if logger_ctx:
         logger_ctx.close()
@@ -117,22 +122,22 @@ def _run_loop(
     model: mujoco.MjModel,
     data: mujoco.MjData,
     gait: gait_tripod.TripodGait,
-    dt: float,
     args: argparse.Namespace,
     state: dict,
     viewer=None,
     logger: logging_utils.MjLogger | None = None,
 ) -> None:
+    sim_dt = float(model.opt.timestep)
     start = time.time()
     step_count = 0
-    max_steps = int(args.duration / dt) if args.duration > 0 else None
+    max_steps = int(args.duration / sim_dt) if args.duration > 0 else None
 
     while state["running"]:
         if max_steps is not None and step_count >= max_steps:
             break
 
         if not state["paused"]:
-            foot_targets = gait.update(dt=dt, send=False)
+            foot_targets = gait.update(dt=sim_dt, send=False)
             ik_solutions = [ik.ik_xyz(*target) for target in foot_targets]
             ctrl = bridge.map_ik_to_ctrl(ik_solutions, degrees=True)
             data.ctrl[:] = ctrl
@@ -146,7 +151,7 @@ def _run_loop(
 
         if args.real_time:
             elapsed = time.time() - start
-            target = step_count * dt
+            target = step_count * sim_dt
             sleep_time = target - elapsed
             if sleep_time > 0:
                 time.sleep(sleep_time)
