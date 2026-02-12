@@ -41,6 +41,34 @@ def _build_model() -> tuple[mujoco.MjModel, mujoco.MjData]:
     return model, data
 
 
+def _set_neutral_pose(
+    model: mujoco.MjModel,
+    data: mujoco.MjData,
+    gait: gait_tripod.TripodGait,
+) -> None:
+    gait.reset_pose(send=False)
+    foot_targets = list(gait.p_H)
+    ik_solutions = [ik.ik_xyz(*target) for target in foot_targets]
+    ctrl = bridge.map_ik_to_ctrl(ik_solutions, degrees=True)
+
+    for joint_name, target in zip(bridge.JOINT_ORDER, ctrl):
+        joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+        if joint_id < 0:
+            continue
+        if model.jnt_type[joint_id] != mujoco.mjtJoint.mjJNT_HINGE:
+            continue
+        qpos_addr = model.jnt_qposadr[joint_id]
+        data.qpos[qpos_addr] = target
+
+    for actuator_name, target in zip(bridge.ACTUATOR_ORDER, ctrl):
+        actuator_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_name)
+        if actuator_id < 0:
+            continue
+        data.ctrl[actuator_id] = target
+
+    mujoco.mj_forward(model, data)
+
+
 def run() -> None:
     args = _parse_args()
 
@@ -51,6 +79,7 @@ def run() -> None:
     gait.set_command(args.vx, args.vy, args.wz)
 
     state = {"paused": False, "running": True}
+    _set_neutral_pose(model, data, gait)
 
     def key_callback(keycode):
         nonlocal state
@@ -58,7 +87,7 @@ def run() -> None:
             state["paused"] = not state["paused"]
         elif keycode in (ord("r"), ord("R")):
             mujoco.mj_resetData(model, data)
-            gait.reset_pose(send=False)
+            _set_neutral_pose(model, data, gait)
         elif keycode in (ord("q"), ord("Q"), 27):
             state["running"] = False
 
