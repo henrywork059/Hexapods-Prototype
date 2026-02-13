@@ -216,6 +216,9 @@ def _run_loop(
                 cycle_time=float(runtime["cycle_time"]),
                 step_length=float(runtime["step_length"]),
                 step_height=float(runtime["step_height"]),
+                cycle_time=float(args.cycle_time),
+                step_length=float(args.step_length),
+                step_height=float(args.step_height),
             )
             ik_solutions = [ik.ik_xyz(*target) for target in foot_targets]
             ctrl = bridge.map_ik_to_ctrl(ik_solutions, degrees=True)
