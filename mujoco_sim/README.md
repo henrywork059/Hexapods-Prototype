@@ -24,8 +24,8 @@ This writes `mujoco_sim/models/hexapod.xml` using geometry from `simulation/conf
 python -m mujoco_sim.run_mujoco
 ```
 
-By default, the runner starts in **tripod** mode and runs in real-time until you quit the viewer.
-This exercises the full gait planner + IK + control mapping stack used by `simulation/sim_main.py`.
+This is the default runtime path: it starts in **tripod** mode and runs in real-time until you quit the viewer.
+It exercises the full tripod gait + planner + IK + control mapping stack used by `simulation/sim_main.py`.
 
 Useful options:
 
@@ -34,7 +34,7 @@ python -m mujoco_sim.run_mujoco --mode single-leg --swing-leg 0 --cycle-time 1.2
 python -m mujoco_sim.run_mujoco --mode tripod --duration 10 --vx 20 --vy 0 --wz 0
 ```
 
-Use `--mode single-leg` as an explicit debug option when you want to cycle a single leg while the other five stay planted.
+Use `--mode single-leg` only as an optional diagnostics/debug mode when you want to cycle a single leg while the other five stay planted.
 
 Controls in the viewer:
 
