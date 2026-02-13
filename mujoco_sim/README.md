@@ -18,6 +18,24 @@ python -m mujoco_sim.generate_mjcf
 
 This writes `mujoco_sim/models/hexapod.xml` using geometry from `simulation/config.py` (preferred) or `MCU_Micropython/config.py` (fallback).
 
+## User Parameter Settings File
+
+A user-editable settings file is available at `mujoco_sim/user_parameters.json`.
+
+It lets you define key runtime values without editing Python code:
+
+- Walking command defaults: `walk_command.vx`, `walk_command.vy`, `walk_command.wz`
+- Single-leg debug values: `single_leg_debug.*`
+- Robot leg/body geometry (mm): `robot_geometry_mm.*` (`coxa_length`, `femur_length`, `tibia_length`, `body_radius`, `stance_z0`)
+
+Use a custom file with:
+
+```bash
+python -m mujoco_sim.run_mujoco --settings path/to/your_settings.json
+```
+
+CLI flags still override settings values when both are provided.
+
 ## Run with Viewer
 
 ```bash
