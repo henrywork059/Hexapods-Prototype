@@ -263,6 +263,8 @@ python -m mujoco_sim.generate_mjcf
 python -m mujoco_sim.run_mujoco --duration 10 --vx 20 --vy 0 --wz 0
 ```
 
+`run_mujoco` defaults to **tripod** mode, so this command runs the full tripod gait/planning/IK stack unless you explicitly override `--mode`.
+
 To run headless with logs:
 
 ```bash
