@@ -89,3 +89,23 @@ def test_neutral_tripod_targets_are_kinematically_consistent():
             rel_foot_z.append(float(data.site_xpos[site_id][2] - torso_z))
 
         assert all(z < -1e-3 for z in rel_foot_z)
+
+
+def test_generated_model_uses_geometry_overrides():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        model_path = Path(tmpdir) / "hexapod.xml"
+        generate_mjcf.write_mjcf(
+            model_path,
+            geometry_overrides={"coxa_length": 50.0, "femur_length": 70.0, "tibia_length": 90.0},
+        )
+
+        model = mujoco.MjModel.from_xml_path(str(model_path))
+
+        coxa_joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "leg0_coxa")
+        femur_body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "leg0_femur_body")
+        tibia_body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "leg0_tibia_body")
+
+        coxa_qpos_addr = model.jnt_qposadr[coxa_joint]
+        assert coxa_qpos_addr >= 0
+        assert np.isclose(model.body_pos[femur_body][0], 0.05)
+        assert np.isclose(model.body_pos[tibia_body][0], 0.07)

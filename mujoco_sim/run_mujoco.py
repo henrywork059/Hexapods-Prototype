@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import time
 from pathlib import Path
@@ -18,6 +19,9 @@ from . import generate_mjcf
 from . import logging_utils
 
 
+DEFAULT_SETTINGS_PATH = Path(__file__).resolve().parent / "user_parameters.json"
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the MuJoCo hexapod simulation.")
     parser.add_argument(
@@ -27,9 +31,10 @@ def _parse_args() -> argparse.Namespace:
         help="Simulation duration in seconds. Use <= 0 to run until you close the viewer.",
     )
     parser.add_argument("--dt", type=float, default=float(sim_config.DT), help="Simulation timestep in seconds.")
-    parser.add_argument("--vx", type=float, default=0.0, help="Body forward velocity (mm/s).")
-    parser.add_argument("--vy", type=float, default=0.0, help="Body lateral velocity (mm/s).")
-    parser.add_argument("--wz", type=float, default=0.0, help="Body yaw rate (rad/s).")
+    parser.add_argument("--settings", type=str, default=str(DEFAULT_SETTINGS_PATH), help="Path to user parameter settings JSON.")
+    parser.add_argument("--vx", type=float, default=None, help="Body forward velocity (mm/s).")
+    parser.add_argument("--vy", type=float, default=None, help="Body lateral velocity (mm/s).")
+    parser.add_argument("--wz", type=float, default=None, help="Body yaw rate (rad/s).")
     parser.add_argument("--real-time", dest="real_time", action="store_true", help="Run in real time.")
     parser.add_argument("--no-real-time", dest="real_time", action="store_false")
     parser.set_defaults(real_time=True)
@@ -41,21 +46,62 @@ def _parse_args() -> argparse.Namespace:
         default="tripod",
         help="Control mode: full tripod gait (default) or simplified single-leg debug gait.",
     )
-    parser.add_argument("--swing-leg", type=int, default=0, help="Leg index to cycle in single-leg mode (0-5).")
-    parser.add_argument("--cycle-time", type=float, default=1.2, help="Single-leg gait cycle period in seconds.")
-    parser.add_argument("--step-length", type=float, default=30.0, help="Single-leg forward/back sweep in mm.")
-    parser.add_argument("--step-height", type=float, default=30.0, help="Single-leg lift height in mm.")
+    parser.add_argument("--swing-leg", type=int, default=None, help="Leg index to cycle in single-leg mode (0-5).")
+    parser.add_argument("--cycle-time", type=float, default=None, help="Single-leg gait cycle period in seconds.")
+    parser.add_argument("--step-length", type=float, default=None, help="Single-leg forward/back sweep in mm.")
+    parser.add_argument("--step-height", type=float, default=None, help="Single-leg lift height in mm.")
     return parser.parse_args()
 
 
-def _build_model(dt: float) -> tuple[mujoco.MjModel, mujoco.MjData]:
+def _load_settings(path: str) -> dict:
+    settings_path = Path(path)
+    if not settings_path.exists():
+        return {}
+    try:
+        return json.loads(settings_path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid settings JSON: {settings_path}") from exc
+
+
+def _resolve_setting(cli_value, settings: dict, dotted_key: str, fallback):
+    if cli_value is not None:
+        return cli_value
+
+    node = settings
+    for key in dotted_key.split('.'):
+        if not isinstance(node, dict) or key not in node:
+            return fallback
+        node = node[key]
+
+    return node
+
+
+def _normalize_runtime_params(args: argparse.Namespace, settings: dict) -> dict[str, float | int | dict[str, float]]:
+    params = {
+        "vx": float(_resolve_setting(args.vx, settings, "walk_command.vx", 0.0)),
+        "vy": float(_resolve_setting(args.vy, settings, "walk_command.vy", 0.0)),
+        "wz": float(_resolve_setting(args.wz, settings, "walk_command.wz", 0.0)),
+        "swing_leg": int(_resolve_setting(args.swing_leg, settings, "single_leg_debug.swing_leg", 0)),
+        "cycle_time": float(_resolve_setting(args.cycle_time, settings, "single_leg_debug.cycle_time", 1.2)),
+        "step_length": float(_resolve_setting(args.step_length, settings, "single_leg_debug.step_length", 30.0)),
+        "step_height": float(_resolve_setting(args.step_height, settings, "single_leg_debug.step_height", 30.0)),
+        "geometry_overrides": _resolve_setting(None, settings, "robot_geometry_mm", {}),
+    }
+    if not isinstance(params["geometry_overrides"], dict):
+        params["geometry_overrides"] = {}
+    return params
+
+
+def _build_model(dt: float, geometry_overrides: dict[str, float] | None = None) -> tuple[mujoco.MjModel, mujoco.MjData]:
     model_path = Path(__file__).resolve().parent / "models" / "hexapod.xml"
     if not model_path.exists():
-        generate_mjcf.write_mjcf(model_path, timestep=dt)
+        generate_mjcf.write_mjcf(model_path, timestep=dt, geometry_overrides=geometry_overrides)
     else:
         existing_model = mujoco.MjModel.from_xml_path(str(model_path))
         if abs(existing_model.opt.timestep - dt) > 1e-12:
-            generate_mjcf.write_mjcf(model_path, timestep=dt)
+            generate_mjcf.write_mjcf(model_path, timestep=dt, geometry_overrides=geometry_overrides)
+    if geometry_overrides:
+        generate_mjcf.write_mjcf(model_path, timestep=dt, geometry_overrides=geometry_overrides)
     model = mujoco.MjModel.from_xml_path(str(model_path))
     model.opt.timestep = dt
     data = mujoco.MjData(model)
@@ -93,11 +139,14 @@ def _set_neutral_pose(
 def run() -> None:
     args = _parse_args()
 
+    settings = _load_settings(args.settings)
+    runtime = _normalize_runtime_params(args, settings)
+
     dt = float(args.dt)
-    model, data = _build_model(dt)
+    model, data = _build_model(dt, geometry_overrides=runtime["geometry_overrides"])
 
     gait = gait_tripod.TripodGait()
-    gait.set_command(args.vx, args.vy, args.wz)
+    gait.set_command(runtime["vx"], runtime["vy"], runtime["wz"])
 
     state = {"paused": False, "running": True}
     _set_neutral_pose(model, data, gait)
@@ -119,7 +168,7 @@ def run() -> None:
     )
 
     if args.headless:
-        _run_loop(model, data, gait, args, state, logger=logger_ctx)
+        _run_loop(model, data, gait, args, state, logger=logger_ctx, runtime=runtime)
         if logger_ctx:
             logger_ctx.close()
         return
@@ -128,7 +177,7 @@ def run() -> None:
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         viewer.key_callback = key_callback
-        _run_loop(model, data, gait, args, state, viewer=viewer, logger=logger_ctx)
+        _run_loop(model, data, gait, args, state, viewer=viewer, logger=logger_ctx, runtime=runtime)
 
     if logger_ctx:
         logger_ctx.close()
@@ -142,10 +191,12 @@ def _run_loop(
     state: dict,
     viewer=None,
     logger: logging_utils.MjLogger | None = None,
+    runtime: dict | None = None,
 ) -> None:
+    runtime = runtime or {}
     sim_dt = float(model.opt.timestep)
     neutral_targets = list(gait.p_H)
-    swing_leg = max(0, min(5, int(args.swing_leg)))
+    swing_leg = max(0, min(5, int(runtime["swing_leg"])))
     start = time.time()
     step_count = 0
     max_steps = int(args.duration / sim_dt) if args.duration > 0 else None
@@ -162,6 +213,9 @@ def _run_loop(
                 step_count=step_count,
                 neutral_targets=neutral_targets,
                 swing_leg=swing_leg,
+                cycle_time=float(runtime["cycle_time"]),
+                step_length=float(runtime["step_length"]),
+                step_height=float(runtime["step_height"]),
                 cycle_time=float(args.cycle_time),
                 step_length=float(args.step_length),
                 step_height=float(args.step_height),

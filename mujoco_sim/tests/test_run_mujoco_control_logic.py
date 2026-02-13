@@ -1,3 +1,5 @@
+import json
+
 from mujoco_sim import run_mujoco
 
 

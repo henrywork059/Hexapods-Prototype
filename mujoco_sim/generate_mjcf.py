@@ -31,15 +31,19 @@ def _vec_to_str(vec: Iterable[float]) -> str:
     return " ".join(f"{v:.6f}" for v in vec)
 
 
-def build_mjcf_xml(timestep: float = 0.01) -> ET.Element:
+def build_mjcf_xml(
+    timestep: float = 0.01,
+    geometry_overrides: dict[str, float] | None = None,
+) -> ET.Element:
     cfg = _load_config()
+    geometry_overrides = geometry_overrides or {}
 
-    coxa_l = float(_get(cfg, "COXA_L", 34.5)) * 0.001
-    femur_l = float(_get(cfg, "FEMUR_L", 64.0)) * 0.001
-    tibia_l = float(_get(cfg, "TIBIA_L", 86.71)) * 0.001
+    coxa_l = float(geometry_overrides.get("coxa_length", _get(cfg, "COXA_L", 34.5))) * 0.001
+    femur_l = float(geometry_overrides.get("femur_length", _get(cfg, "FEMUR_L", 64.0))) * 0.001
+    tibia_l = float(geometry_overrides.get("tibia_length", _get(cfg, "TIBIA_L", 86.71))) * 0.001
 
-    body_radius = float(_get(cfg, "BODY_RADIUS", 80.0)) * 0.001
-    stance_z0 = float(_get(cfg, "STANCE_Z0", -80.0)) * 0.001
+    body_radius = float(geometry_overrides.get("body_radius", _get(cfg, "BODY_RADIUS", 80.0))) * 0.001
+    stance_z0 = float(geometry_overrides.get("stance_z0", _get(cfg, "STANCE_Z0", -80.0))) * 0.001
 
     hip_pos = _get(cfg, "hip_pos_B", None)
     mount_angles = _get(cfg, "MOUNT_ANGLES", None)
@@ -218,10 +222,14 @@ def build_mjcf_xml(timestep: float = 0.01) -> ET.Element:
     return root
 
 
-def write_mjcf(path: str | Path, timestep: float = 0.01) -> Path:
+def write_mjcf(
+    path: str | Path,
+    timestep: float = 0.01,
+    geometry_overrides: dict[str, float] | None = None,
+) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    root = build_mjcf_xml(timestep=timestep)
+    root = build_mjcf_xml(timestep=timestep, geometry_overrides=geometry_overrides)
     tree = ET.ElementTree(root)
     tree.write(path, encoding="utf-8", xml_declaration=True)
     return path
