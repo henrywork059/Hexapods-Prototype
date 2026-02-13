@@ -38,8 +38,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         choices=("single-leg", "tripod"),
-        default="single-leg",
-        help="Control mode: simplified single-leg gait or full tripod gait.",
+        default="tripod",
+        help="Control mode: full tripod gait (default) or simplified single-leg debug gait.",
     )
     parser.add_argument("--swing-leg", type=int, default=0, help="Leg index to cycle in single-leg mode (0-5).")
     parser.add_argument("--cycle-time", type=float, default=1.2, help="Single-leg gait cycle period in seconds.")
