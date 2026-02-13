@@ -155,17 +155,17 @@ def _run_loop(
             break
 
         if not state["paused"]:
-            if args.mode == "single-leg":
-                foot_targets = _single_leg_targets(
-                    t=step_count * sim_dt,
-                    neutral=neutral_targets,
-                    leg_index=swing_leg,
-                    cycle_time=max(sim_dt, float(args.cycle_time)),
-                    step_length=float(args.step_length),
-                    step_height=float(args.step_height),
-                )
-            else:
-                foot_targets = gait.update(dt=sim_dt, send=False)
+            foot_targets = _compute_foot_targets(
+                mode=args.mode,
+                gait=gait,
+                sim_dt=sim_dt,
+                step_count=step_count,
+                neutral_targets=neutral_targets,
+                swing_leg=swing_leg,
+                cycle_time=float(args.cycle_time),
+                step_length=float(args.step_length),
+                step_height=float(args.step_height),
+            )
             ik_solutions = [ik.ik_xyz(*target) for target in foot_targets]
             ctrl = bridge.map_ik_to_ctrl(ik_solutions, degrees=True)
             data.ctrl[:] = ctrl
@@ -183,6 +183,30 @@ def _run_loop(
             sleep_time = target - elapsed
             if sleep_time > 0:
                 time.sleep(sleep_time)
+
+
+def _compute_foot_targets(
+    mode: str,
+    gait: gait_tripod.TripodGait,
+    sim_dt: float,
+    step_count: int,
+    neutral_targets: list[tuple[float, float, float]],
+    swing_leg: int,
+    cycle_time: float,
+    step_length: float,
+    step_height: float,
+) -> list[tuple[float, float, float]]:
+    if mode == "single-leg":
+        return _single_leg_targets(
+            t=step_count * sim_dt,
+            neutral=neutral_targets,
+            leg_index=swing_leg,
+            cycle_time=max(sim_dt, cycle_time),
+            step_length=step_length,
+            step_height=step_height,
+        )
+
+    return gait.update(dt=sim_dt, send=False)
 
 
 def _single_leg_targets(
