@@ -77,15 +77,23 @@ def _resolve_setting(cli_value, settings: dict, dotted_key: str, fallback):
 
 
 def _normalize_runtime_params(args: argparse.Namespace, settings: dict) -> dict[str, float | int | dict[str, float]]:
+    default_geometry = {
+        "coxa_length": float(sim_config.COXA_L),
+        "femur_length": float(sim_config.FEMUR_L),
+        "tibia_length": float(sim_config.TIBIA_L),
+        "body_radius": float(sim_config.BODY_RADIUS),
+        "stance_z0": float(sim_config.STANCE_Z0),
+    }
+
     params = {
         "vx": float(_resolve_setting(args.vx, settings, "walk_command.vx", 0.0)),
         "vy": float(_resolve_setting(args.vy, settings, "walk_command.vy", 0.0)),
         "wz": float(_resolve_setting(args.wz, settings, "walk_command.wz", 0.0)),
         "swing_leg": int(_resolve_setting(args.swing_leg, settings, "single_leg_debug.swing_leg", 0)),
-        "cycle_time": float(_resolve_setting(args.cycle_time, settings, "single_leg_debug.cycle_time", 1.2)),
-        "step_length": float(_resolve_setting(args.step_length, settings, "single_leg_debug.step_length", 30.0)),
-        "step_height": float(_resolve_setting(args.step_height, settings, "single_leg_debug.step_height", 30.0)),
-        "geometry_overrides": _resolve_setting(None, settings, "robot_geometry_mm", {}),
+        "cycle_time": float(_resolve_setting(args.cycle_time, settings, "single_leg_debug.cycle_time", sim_config.GAIT_PERIOD)),
+        "step_length": float(_resolve_setting(args.step_length, settings, "single_leg_debug.step_length", getattr(sim_config, "STEP_FWD", sim_config.STEP_LIMIT_MM))),
+        "step_height": float(_resolve_setting(args.step_height, settings, "single_leg_debug.step_height", sim_config.SWING_CLEARANCE)),
+        "geometry_overrides": _resolve_setting(None, settings, "robot_geometry_mm", default_geometry),
     }
     if not isinstance(params["geometry_overrides"], dict):
         params["geometry_overrides"] = {}
@@ -216,9 +224,6 @@ def _run_loop(
                 cycle_time=float(runtime["cycle_time"]),
                 step_length=float(runtime["step_length"]),
                 step_height=float(runtime["step_height"]),
-                cycle_time=float(args.cycle_time),
-                step_length=float(args.step_length),
-                step_height=float(args.step_height),
             )
             ik_solutions = [ik.ik_xyz(*target) for target in foot_targets]
             ctrl = bridge.map_ik_to_ctrl(ik_solutions, degrees=True)

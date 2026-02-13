@@ -63,3 +63,22 @@ def test_parse_args_defaults_to_tripod_mode(monkeypatch):
     args = run_mujoco._parse_args()
 
     assert args.mode == "tripod"
+
+
+def test_normalize_runtime_params_defaults_follow_sim_config():
+    args = run_mujoco.argparse.Namespace(
+        vx=None,
+        vy=None,
+        wz=None,
+        swing_leg=None,
+        cycle_time=None,
+        step_length=None,
+        step_height=None,
+    )
+
+    params = run_mujoco._normalize_runtime_params(args, settings={})
+
+    assert params["cycle_time"] == run_mujoco.sim_config.GAIT_PERIOD
+    assert params["step_height"] == run_mujoco.sim_config.SWING_CLEARANCE
+    assert params["geometry_overrides"]["coxa_length"] == run_mujoco.sim_config.COXA_L
+    assert params["geometry_overrides"]["body_radius"] == run_mujoco.sim_config.BODY_RADIUS
