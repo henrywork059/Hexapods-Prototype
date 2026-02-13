@@ -36,6 +36,23 @@ python -m mujoco_sim.run_mujoco --settings path/to/your_settings.json
 
 CLI flags still override settings values when both are provided.
 
+
+## MCU-Alignment Notes
+
+`mujoco_sim` is now wired to use the same control pipeline defaults as the project control stack:
+
+- Gait + IK come directly from `simulation.gait_tripod` and `simulation.ik` (same math/logic path).
+- Default geometry fallbacks are taken from `simulation.config`, which mirrors root `config.py` values when present.
+- If you leave `robot_geometry_mm` out of your settings file, MuJoCo uses those config-derived dimensions automatically.
+
+To run with the same timing/control defaults as the current config:
+
+```bash
+python -m mujoco_sim.run_mujoco --dt 0.02 --mode tripod --vx 35 --vy 0 --wz 0
+```
+
+(Use your current MCU command values for `--vx/--vy/--wz` as needed.)
+
 ## Run with Viewer
 
 ```bash
